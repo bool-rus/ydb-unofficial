@@ -11,3 +11,6 @@ tonic = "0.8"
 tokio = { version = "1.27.0", features = ["full"] }
 prost = "0.11.2"
 ctor = "0.2.0"
+deadpool = "0.9.5"
+async-trait = "0.1.68"
+tower = { version = "0.4.13", features = ["balance"] }
