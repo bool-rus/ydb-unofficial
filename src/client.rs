@@ -51,8 +51,8 @@ impl<C: Credentials + Clone> Client<C> {
     pub async fn new<E: TryInto<Endpoint>>(endpoint: E, db_name: &str, creds: C) -> Result<Self, Box<dyn Error>> where E::Error : std::error::Error + 'static {
         let db_name = db_name.try_into()?;
         let endpoint: Endpoint = endpoint.try_into()?;
-        let endpoint = endpoint.tcp_keepalive(Some(std::time::Duration::from_secs(15)))
-            .tls_config(tonic::transport::ClientTlsConfig::new())?;
+        let endpoint = endpoint.tcp_keepalive(Some(std::time::Duration::from_secs(15)));
+            //.tls_config(tonic::transport::ClientTlsConfig::new())?;
         let channel = endpoint.connect().await?;
         let interceptor = DBInterceptor {db_name, creds};
         let result = Self::list_endpoints(channel.clone(), interceptor.clone()).await?;
@@ -115,6 +115,7 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         headers.insert("x-ydb-database", self.db_name.clone());
         headers.insert("x-ydb-sdk-build-info", BUILD_INFO.clone());
         headers.insert("x-ydb-auth-ticket", self.creds.token());
+        println!("headers added");
         Ok(request)    
     }
 }

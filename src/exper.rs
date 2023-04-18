@@ -5,31 +5,9 @@ use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServ
 
 
 
-async fn new_service() {
-    let channel = Channel::from_static("ya.ru").connect().await.unwrap();
-    let db_name = "bgg".try_into().unwrap();
-    let creds = "bgg".to_owned();
-    let interceptor = DBInterceptor {db_name, creds};
-    let channel = ServiceBuilder::new()
-        // Interceptors can be also be applied as middleware
-        .layer(tonic::service::interceptor(interceptor))
-       //.layer_fn(AuthSvc::new)
-        .service(channel);
-    let mut client = DiscoveryServiceClient::new(channel);
 
-}
 
-fn add_auth(channel: Channel, db_name: String, creds: String) -> impl tonic::client::GrpcService<tonic::body::BoxBody> {
-    vec![1];
-    let db_name = "bgg".try_into().unwrap();
-    let creds = "bgg".to_owned();
-    let interceptor = DBInterceptor {db_name, creds};
-    ServiceBuilder::new()
-        // Interceptors can be also be applied as middleware
-        .layer(tonic::service::interceptor(interceptor))
-        .layer_fn(|x|x)
-        .service(channel)
-}
+
 
 #[derive(Clone, Debug)]
 pub struct DBInterceptor {
