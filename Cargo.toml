@@ -6,11 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ydb-grpc = "0.0.13"
-tonic = "0.8"
+#ydb-grpc = "0.0.13"
+tonic = { versoin = "0.9", features = ["tls-roots"] }
 tokio = { version = "1.27.0", features = ["full"] }
 prost = "0.11.2"
 ctor = "0.2.0"
 deadpool = "0.9.5"
 async-trait = "0.1.68"
 tower = { version = "0.4.13", features = ["balance"] }
+base64 = { version = "0.21.0", features = ["alloc"] }
+
+[build-dependencies]
+tonic-build = "0.9"
+walkdir = "*"

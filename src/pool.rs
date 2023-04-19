@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use deadpool::managed;
 use tonic::transport::{Channel, Endpoint};
-use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest};
+//use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest};
 
 #[derive(Debug)]
 struct Manager {}
@@ -45,6 +45,8 @@ async fn my_test() {
 #[cfg(test)]
 async fn go_with_pool(pool: Pool) {
     use std::{time::Duration, sync::Arc};
+
+    use crate::generated::ydb::discovery::{v1::DiscoveryServiceClient, WhoAmIRequest};
 
     let mut conn = pool.get().await.unwrap();
     let mut client = DiscoveryServiceClient::new(conn.clone());

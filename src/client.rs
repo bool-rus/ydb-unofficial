@@ -5,7 +5,10 @@ use prost::Message;
 use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
-use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, WhoAmIResponse, ListEndpointsRequest, WhoAmIResult, ListEndpointsResult};
+
+use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
+use crate::generated::ydb::discovery::{ListEndpointsResult, ListEndpointsRequest};
+//use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, WhoAmIResponse, ListEndpointsRequest, WhoAmIResult, ListEndpointsResult};
 
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
 
