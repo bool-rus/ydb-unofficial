@@ -1,7 +1,7 @@
 use tonic::{transport::Channel, service::Interceptor};
 use tower::ServiceBuilder;
 
-use crate::generated::ydb::{discovery::{WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult}};
+use crate::generated::ydb::{discovery::{WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult, DeleteSessionResponse, ExecuteDataQueryResponse, ExecuteQueryResult}};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult}};
 
 
@@ -52,3 +52,4 @@ macro_rules! payloaded {
 payloaded!(WhoAmIResponse , WhoAmIResult);
 payloaded!(ListEndpointsResponse , ListEndpointsResult);
 payloaded!(CreateSessionResponse, CreateSessionResult);
+payloaded!(ExecuteDataQueryResponse, ExecuteQueryResult);

@@ -2,7 +2,7 @@
 use std::error::Error;
 use prost::Message;
 
-use tonic::codegen::InterceptedService;
+use tonic::codegen::{InterceptedService, http};
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
@@ -12,26 +12,17 @@ use crate::generated::ydb::discovery::{ListEndpointsResult, ListEndpointsRequest
 
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
 
-pub trait YdbService: tonic::client::GrpcService<tonic::body::BoxBody> 
-where Self::Error: Into<tonic::codegen::StdError> ,
-    Self::ResponseBody: tonic::codegen::Body<Data = prost::bytes::Bytes> + Send + 'static,
-    <Self::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send
-{}
 
-impl<T> YdbService for T where T: tonic::client::GrpcService<tonic::body::BoxBody>,
-T::Error: Into<tonic::codegen::StdError>,
-T::ResponseBody: tonic::codegen::Body<Data = prost::bytes::Bytes> + Send + 'static,
-<T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send {}
-
-pub fn create_ydb_service<C: Credentials>(channel: Channel, db_name: String, creds: C) -> InterceptedService<Channel, DBInterceptor<C>> {
+pub fn create_ydb_service<C: Credentials>(channel: Channel, db_name: String, creds: C) -> YdbService<C> {
     let db_name = db_name.try_into().unwrap();
     let interceptor = DBInterceptor {db_name, creds};
-    tower::ServiceBuilder::new()
-        // Interceptors can be also be applied as middleware
+    let service = tower::ServiceBuilder::new()
         .layer(tonic::service::interceptor(interceptor))
         .layer_fn(|x|x)
-        .service(channel)
+        .service(channel);
+    YdbService(service)
 }
+
 
 
 pub fn create_endpoint(uri: Uri) -> Endpoint {
@@ -120,5 +111,27 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         headers.insert("x-ydb-auth-ticket", self.creds.token());
         println!("headers added");
         Ok(request)    
+    }
+}
+
+#[derive(Clone)]
+pub struct YdbService<C: Credentials>(InterceptedService<Channel, DBInterceptor<C>>);
+
+use tonic::client::GrpcService as Service;
+use tonic::body::BoxBody as Body;
+
+impl<C: Credentials> Service<Body> for YdbService<C> {
+    type ResponseBody = Body;
+
+    type Error = tonic::transport::Error;
+
+    type Future = tonic::service::interceptor::ResponseFuture<tonic::transport::channel::ResponseFuture>;
+
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(cx)
+    }
+
+    fn call(&mut self, request: tonic::codegen::http::Request<tonic::body::BoxBody>) -> Self::Future {
+        self.0.call(request)
     }
 }
