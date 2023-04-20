@@ -14,7 +14,6 @@ ctor = "0.2.0"
 deadpool = "0.9.5"
 async-trait = "0.1.68"
 tower = { version = "0.4.13", features = ["balance"] }
-base64 = { version = "0.21.0", features = ["alloc"] }
 
 [build-dependencies]
 tonic-build = "0.9"
