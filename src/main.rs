@@ -31,22 +31,22 @@ pub async fn main() {
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
     //let url = "grpcs://localhost:2135";
     //let db_name = "/local";
-    let creds = "t1.9euelZrOz5mWmMaQnI2eno-TlJbLyO3rnpWamcmNip2Tk46RxpyZlpuTyo_l8_cQOgBe-e8uCAIV_t3z91BofV357y4IAhX-.aXebaJZxBI7mtfYjDDRNT1opYrO1e1g8dlC4AzYQstnYxxB5KS32uDwLWi7UXxSUG-ay6r2I5CJhyfjnnnhWCA";
+    let creds = env!("TOKEN");
     let tls_config = ClientTlsConfig::new().ca_certificate(CERT.clone());
     //println!("tls config: {tls_config:?}");
     let ep = client::create_endpoint(url.try_into().unwrap()).tls_config(tls_config).unwrap();
     let channel = ep.connect().await.unwrap();
-    let service = client::create_ydb_service(channel, db_name.into(), creds.to_owned());
+    let service = YdbService::new(channel, db_name.try_into().unwrap(), creds.to_owned());
 
     //client::Client::new(url, db_name, creds.to_owned()).await.unwrap();
 
-    let mut client = create_discovery_client(&service);
+    let mut client = service.clone().discovery();
     //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
     let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
     let payload = response.into_inner().payload().unwrap();
     println!("payload: {payload:?}");
 
-    let table_client = TableServiceClient::new(service.clone());
+    let table_client = service.clone().table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
     
 
@@ -95,7 +95,7 @@ impl<T> Baz<T> where T: Foo, T::Inner: Bar,
 }
 
 fn test() {
-    let baz = Baz::new(1);
+    let baz: Baz<i32> = Baz::new(1);
     let s = baz.foo();
 }
 
