@@ -1,13 +1,19 @@
 
 use std::error::Error;
+use async_trait::async_trait;
 use prost::Message;
 
 use tonic::codegen::{InterceptedService, http};
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
+use crate::exper::YdbResponse;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
 use crate::generated::ydb::discovery::{ListEndpointsResult, ListEndpointsRequest};
+use crate::generated::ydb::table::query::Query;
+use crate::generated::ydb::table::transaction_control::TxSelector;
+use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
+use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
 //use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, WhoAmIResponse, ListEndpointsRequest, WhoAmIResult, ListEndpointsResult};
 
@@ -23,7 +29,7 @@ pub fn create_endpoint(uri: Uri) -> Endpoint {
 }
 
 
-pub trait Credentials: Clone {
+pub trait Credentials: Clone + Send + 'static {
     fn token(&self) -> AsciiValue;
 }
 
@@ -48,7 +54,6 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         headers.insert("x-ydb-database", self.db_name.clone());
         headers.insert("x-ydb-sdk-build-info", BUILD_INFO.clone());
         headers.insert("x-ydb-auth-ticket", self.creds.token());
-        println!("headers added");
         Ok(request)    
     }
 }
@@ -89,5 +94,65 @@ impl<C: Credentials> YdbService<C> {
     }
     pub fn table(self) -> TableServiceClient<Self> {
         TableServiceClient::new(self)
+    }
+}
+
+type YdbError = Box<dyn Error>;
+
+pub struct Session<C: Credentials> {
+    session_id: String,
+    client: TableServiceClient<YdbService<C>>
+}
+
+#[async_trait]
+pub trait StartSession<C: Credentials> {
+    async fn start_session(self) -> Result<Session<C>, YdbError>;
+}
+#[async_trait]
+impl<C: Credentials> StartSession<C> for TableServiceClient<YdbService<C>> {
+    async fn start_session(mut self) -> Result<Session<C>, YdbError> {
+        let response = self.create_session(CreateSessionRequest::default()).await?;
+        let session_id = response.into_inner().payload().unwrap().session_id;
+        Ok(Session{session_id, client: self})
+    }
+}
+
+impl<C: Credentials> Drop for Session<C> {
+    fn drop(&mut self) {
+        let Session {session_id, client} = self;
+        let session_id = session_id.clone();
+        let mut client = client.clone();
+        tokio::spawn(async move {
+            let res = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await;
+            if let Some(e) = res.err() {
+                println!("Error on closing session: {e}");
+            } else {
+                println!("Session closed");
+            }
+        });
+    }
+}
+
+impl <C: Credentials + Send> Session<C> {
+    pub async fn query(&mut self, query: String) -> Result<(), YdbError> {
+        let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
+        let selector = TxSelector::BeginTx(tx_settings);
+        let session_id = self.session_id.clone();
+        let x = self.client.execute_data_query(ExecuteDataQueryRequest{
+            session_id,
+            tx_control: Some(TransactionControl{commit_tx: true, tx_selector: Some(selector.clone())}),
+            query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
+            ..Default::default()
+        }).await?;
+        let result_sets = x.into_inner().payload().unwrap().result_sets;
+        for rs in result_sets {
+            for row in rs.rows {
+                for item in row.items {
+                    println!("item: {item:?}");
+                }
+            }
+        }
+    
+        Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, env, time::Duration};
 
 use tonic::{transport::{Certificate, ClientTlsConfig, Channel}, codegen::InterceptedService, service::Interceptor};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
@@ -31,7 +31,7 @@ pub async fn main() {
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
     //let url = "grpcs://localhost:2135";
     //let db_name = "/local";
-    let creds = env!("TOKEN");
+    let creds = env::var("TOKEN").unwrap();
     let tls_config = ClientTlsConfig::new().ca_certificate(CERT.clone());
     //println!("tls config: {tls_config:?}");
     let ep = client::create_endpoint(url.try_into().unwrap()).tls_config(tls_config).unwrap();
@@ -48,29 +48,15 @@ pub async fn main() {
 
     let table_client = service.clone().table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
+    {
+        use client::StartSession;
+        let mut session = table_client.start_session().await.unwrap();
+        session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
     
-
-    let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
-    let selector = TxSelector::BeginTx(tx_settings);
-
-    let fetch = with_session(service.clone(), |session_id | async {
-        table_client.clone().execute_data_query(ExecuteDataQueryRequest{
-            session_id,
-            tx_control: Some(TransactionControl{commit_tx: true, tx_selector: Some(selector.clone())}),
-            query: Some(table::Query{query: Some(Query::YqlText("SELECT 1+1 as sum".into()))}),
-            ..Default::default()
-        }).await
-    }).await.unwrap();
-
-    let fetch = fetch.into_inner().payload();
-    println!("fetched: {fetch:?}");
-
-
 }
 
-fn create_discovery_client<C: Credentials>(service: &YdbService<C>) -> DiscoveryServiceClient<YdbService<C>> {
-    DiscoveryServiceClient::new(service.clone())
-}
 
 async fn with_session<C: Credentials, Fut: Future, F: FnMut(String)->Fut>(service: YdbService<C>, mut fun: F) -> Fut::Output {
     let mut table_client = TableServiceClient::new(service);
@@ -95,7 +81,7 @@ impl<T> Baz<T> where T: Foo, T::Inner: Bar,
 }
 
 fn test() {
-    let baz: Baz<i32> = Baz::new(1);
+    let baz = Baz::new(1);
     let s = baz.foo();
 }
 
