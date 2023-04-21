@@ -48,15 +48,6 @@ pub async fn main() {
 }
 
 
-async fn with_session<C: Credentials, Fut: Future, F: FnMut(String)->Fut>(service: YdbService<C>, mut fun: F) -> Fut::Output {
-    let mut table_client = TableServiceClient::new(service);
-    let session: CreateSessionResponse = table_client.create_session(CreateSessionRequest::default()).await.unwrap().into_inner();
-    let session_id = session.payload().unwrap().session_id;
-    let result = fun(session_id.clone()).await;
-    table_client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await.unwrap();
-    result
-}
-
 
 trait Foo {type Inner;}
 trait Bar {type Inner;}

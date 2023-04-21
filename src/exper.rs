@@ -1,37 +1,29 @@
 use tonic::{transport::Channel, service::Interceptor};
 use tower::ServiceBuilder;
 
-use crate::generated::ydb::{discovery::{WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult, DeleteSessionResponse, ExecuteDataQueryResponse, ExecuteQueryResult}};
+use crate::generated::ydb::{discovery::{WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult, DeleteSessionResponse, ExecuteDataQueryResponse, ExecuteQueryResult}, status_ids::StatusCode};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult}};
 
-
-
-
-
-
-
-
-#[derive(Clone, Debug)]
-pub struct DBInterceptor {
-    db_name: String,
-    creds: String,
+#[derive(Debug)]
+pub enum ExtractPayloadError {
+    Empty,
+    BadSession,
+    SessionBusy,
+    Parse,
+    Unknown,
 }
 
-
-impl Interceptor for DBInterceptor {
-    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
-        let headers = request.metadata_mut();
-        headers.insert("x-ydb-database", self.db_name.as_str().try_into().unwrap());
-        headers.insert("x-ydb-sdk-build-info", "bgg".try_into().unwrap());
-        headers.insert("x-ydb-auth-ticket", self.creds.as_str().try_into().unwrap());
-        Ok(request)    
+impl std::fmt::Display for ExtractPayloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self, f)
     }
 }
+impl std::error::Error for ExtractPayloadError {}
 
 
 pub trait YdbResponse {
     type Payload;
-    fn payload(&self) -> Option<Self::Payload>;
+    fn payload(&self) -> Result<Self::Payload,ExtractPayloadError>;
 }
 
 
@@ -39,10 +31,21 @@ macro_rules! payloaded {
     ($x:ty , $p:ty) => {
         impl YdbResponse for $x {
             type Payload = $p;
-            fn payload(&self) -> Option<Self::Payload> {
+            fn payload(&self) -> Result<Self::Payload, ExtractPayloadError> {
                 use prost::Message;
-                let bytes = self.operation.as_ref()?.result.as_ref()?.value.as_slice();
-                Some(Message::decode(bytes).unwrap())
+                use ExtractPayloadError::*;
+                let operation = self.operation.as_ref().ok_or(Empty)?;
+                match operation.status() {
+                    StatusCode::Success => Ok(()),
+                    StatusCode::BadSession => Err(BadSession),
+                    StatusCode::SessionExpired => Err(BadSession),
+                    StatusCode::SessionBusy => Err(SessionBusy),
+                    _ => Err(Unknown),
+                }?;
+                let bytes = operation
+                    .result.as_ref().ok_or(Empty)?
+                    .value.as_slice();
+                Message::decode(bytes).map_err(|_|Parse)
             }
         }
     }

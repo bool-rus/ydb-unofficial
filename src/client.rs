@@ -1,7 +1,9 @@
 
 use std::error::Error;
+use std::future::Future;
 use async_trait::async_trait;
 use prost::Message;
+use table::*;
 
 use tonic::codegen::{InterceptedService, http};
 use tonic::service::Interceptor;
@@ -99,28 +101,29 @@ impl<C: Credentials> YdbService<C> {
 
 type YdbError = Box<dyn Error>;
 
-pub struct Session<C: Credentials> {
+pub struct WithSession<C: Credentials> {
     session_id: String,
     client: TableServiceClient<YdbService<C>>
 }
 
 #[async_trait]
 pub trait StartSession<C: Credentials> {
-    async fn start_session(self) -> Result<Session<C>, YdbError>;
+    async fn start_session(self) -> Result<WithSession<C>, YdbError>;
 }
 #[async_trait]
 impl<C: Credentials> StartSession<C> for TableServiceClient<YdbService<C>> {
-    async fn start_session(mut self) -> Result<Session<C>, YdbError> {
+    async fn start_session(mut self) -> Result<WithSession<C>, YdbError> {
         let response = self.create_session(CreateSessionRequest::default()).await?;
         let session_id = response.into_inner().payload().unwrap().session_id;
-        Ok(Session{session_id, client: self})
+        Ok(WithSession{session_id, client: self})
     }
 }
 
-impl<C: Credentials> Drop for Session<C> {
+impl<C: Credentials> Drop for WithSession<C> {
     fn drop(&mut self) {
-        let Session {session_id, client} = self;
+        let WithSession {session_id, client} = self;
         let session_id = session_id.clone();
+        println!("session: {session_id}");
         let mut client = client.clone();
         tokio::spawn(async move {
             let res = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await;
@@ -133,17 +136,27 @@ impl<C: Credentials> Drop for Session<C> {
     }
 }
 
-impl <C: Credentials + Send> Session<C> {
+
+macro_rules! delegate {
+    (with $field:ident : $(fn $fun:ident($arg:ty) -> $ret:ty;)+) => { $(
+        pub async fn $fun(&mut self, mut req: $arg) -> Result<tonic::Response<$ret>, tonic::Status> {
+            req.$field = self.$field.clone();
+            self.client.$fun(req).await
+        }
+    )+} 
+}
+
+impl <C: Credentials + Send> WithSession<C> {
     pub async fn query(&mut self, query: String) -> Result<(), YdbError> {
         let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
         let selector = TxSelector::BeginTx(tx_settings);
-        let session_id = self.session_id.clone();
-        let x = self.client.execute_data_query(ExecuteDataQueryRequest{
-            session_id,
+        let x = self.execute_data_query(ExecuteDataQueryRequest{
             tx_control: Some(TransactionControl{commit_tx: true, tx_selector: Some(selector.clone())}),
             query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
             ..Default::default()
         }).await?;
+        println!("\nresponse: {x:?}\n");
+        //let status = x.into_inner().operation.unwrap().status();
         let result_sets = x.into_inner().payload().unwrap().result_sets;
         for rs in result_sets {
             for row in rs.rows {
@@ -155,4 +168,10 @@ impl <C: Credentials + Send> Session<C> {
     
         Ok(())
     }
+    delegate!{ with session_id:
+        fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
+        fn prepare_data_query(PrepareDataQueryRequest) -> PrepareDataQueryResponse;
+    }
 }
+
+
