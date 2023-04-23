@@ -1,24 +1,21 @@
 
 use std::error::Error;
-use std::future::Future;
+
 use async_trait::async_trait;
-use prost::Message;
+
 use table::*;
 
-use tonic::codegen::{InterceptedService, http};
+use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
 use crate::exper::YdbResponse;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
-use crate::generated::ydb::discovery::{ListEndpointsResult, ListEndpointsRequest};
 use crate::generated::ydb::table::query::Query;
 use crate::generated::ydb::table::transaction_control::TxSelector;
 use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
 use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
-//use ydb_grpc::ydb_proto::discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, WhoAmIResponse, ListEndpointsRequest, WhoAmIResult, ListEndpointsResult};
-
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
 
 

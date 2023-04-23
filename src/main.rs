@@ -1,13 +1,13 @@
-use std::{future::Future, env, time::Duration};
+#![allow(dead_code)]
 
-use tonic::{transport::{Certificate, ClientTlsConfig, Channel}, codegen::InterceptedService, service::Interceptor};
+use std::{env, time::Duration};
+
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
 use exper::YdbResponse;
-use generated::google::protobuf::Any;
 
-use crate::generated::{ydb::{discovery::{ListEndpointsRequest, ListEndpointsResponse, v1::MyStruct}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest, DeleteSessionRequest, ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, OnlineModeSettings, transaction_control::TxSelector, CreateSessionResponse}}, DiscoveryServiceClient};
+use crate::generated::ydb::table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector};
 
-use self::client::{DBInterceptor, Credentials, YdbService};
+use self::client::YdbService;
 
 mod pool;
 mod client;
@@ -89,7 +89,7 @@ impl<T> Baz<T> where T: Foo, T::Inner: Bar,
 
 fn test() {
     let baz = Baz::new(1);
-    let s = baz.foo();
+    let _s = baz.foo();
 }
 
 
