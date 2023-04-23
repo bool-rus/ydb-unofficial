@@ -1,8 +1,8 @@
-use tonic::{transport::Channel, service::Interceptor};
-use tower::ServiceBuilder;
 
-use crate::generated::ydb::{discovery::{WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult, DeleteSessionResponse, ExecuteDataQueryResponse, ExecuteQueryResult}, status_ids::StatusCode};
-//use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIResponse, WhoAmIResult, ListEndpointsResponse, ListEndpointsResult}, table::{CreateSessionResponse, CreateSessionResult}};
+use crate::generated::ydb::{table, discovery, status_ids};
+use table::*;
+use discovery::*;
+use status_ids::StatusCode;
 
 #[derive(Debug)]
 pub enum ExtractPayloadError {
@@ -28,7 +28,7 @@ pub trait YdbResponse {
 
 
 macro_rules! payloaded {
-    ($x:ty , $p:ty) => {
+    ($($x:ty : $p:ty,)+) => {$(
         impl YdbResponse for $x {
             type Payload = $p;
             fn payload(&self) -> Result<Self::Payload, ExtractPayloadError> {
@@ -48,11 +48,14 @@ macro_rules! payloaded {
                 Message::decode(bytes).map_err(|_|Parse)
             }
         }
-    }
+    )+}
 }
 
 
-payloaded!(WhoAmIResponse , WhoAmIResult);
-payloaded!(ListEndpointsResponse , ListEndpointsResult);
-payloaded!(CreateSessionResponse, CreateSessionResult);
-payloaded!(ExecuteDataQueryResponse, ExecuteQueryResult);
+payloaded!(
+    WhoAmIResponse: WhoAmIResult, 
+    ListEndpointsResponse: ListEndpointsResult,
+    CreateSessionResponse: CreateSessionResult,
+    ExecuteDataQueryResponse: ExecuteQueryResult,
+    BeginTransactionResponse: BeginTransactionResult,
+);

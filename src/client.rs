@@ -125,7 +125,7 @@ impl<C: Credentials> Drop for WithSession<C> {
         let session_id = session_id.clone();
         println!("session: {session_id}");
         let mut client = client.clone();
-        tokio::spawn(async move {
+        tokio::spawn(async move { //TODO: bad pratices... or not?
             let res = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await;
             if let Some(e) = res.err() {
                 println!("Error on closing session: {e}");
@@ -167,11 +167,43 @@ impl <C: Credentials + Send> WithSession<C> {
         }
     
         Ok(())
-    }
+    }    
     delegate!{ with session_id:
+        fn create_table(CreateTableRequest) -> CreateTableResponse;
+        fn drop_table(DropTableRequest) -> DropTableResponse;
+        fn alter_table(AlterTableRequest) -> AlterTableResponse;
+        fn copy_table(CopyTableRequest) -> CopyTableResponse;
+        fn rename_tables(RenameTablesRequest) -> RenameTablesResponse;
+        fn describe_table(DescribeTableRequest) -> DescribeTableResponse;
         fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
+        fn execute_scheme_query(ExecuteSchemeQueryRequest) -> ExecuteSchemeQueryResponse;
+        fn explain_data_query(ExplainDataQueryRequest) -> ExplainDataQueryResponse;
         fn prepare_data_query(PrepareDataQueryRequest) -> PrepareDataQueryResponse;
+        fn keep_alive(KeepAliveRequest) -> KeepAliveResponse;
+        fn begin_transaction(BeginTransactionRequest) -> BeginTransactionResponse;
+        fn commit_transaction(CommitTransactionRequest) -> CommitTransactionResponse;
+        fn rollback_transaction(RollbackTransactionRequest) -> RollbackTransactionResponse;
+        fn stream_read_table(ReadTableRequest) -> tonic::codec::Streaming<ReadTableResponse>;
     }
 }
 
 
+pub struct YdbTransaction<C: Credentials> {
+    tx_control: Option<TransactionControl>,
+    client: WithSession<C>,
+}
+
+impl<C: Credentials> YdbTransaction<C> {
+    pub async fn create(mut client: WithSession<C>) -> Result<Self, YdbError> {
+        let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
+        let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
+        let tx_id = response.into_inner().payload()?.tx_meta.unwrap().id;
+        let tx_control = Some(TransactionControl{commit_tx: false, tx_selector: Some(TxSelector::TxId(tx_id))});
+        Ok(Self {tx_control, client})
+    }
+
+    delegate!{ with tx_control:
+        fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
+    }
+
+}

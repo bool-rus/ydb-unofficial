@@ -32,16 +32,42 @@ pub async fn main() {
 
     let mut client = service.clone().discovery();
     //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
-    let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
-    let payload = response.into_inner().payload().unwrap();
-    println!("payload: {payload:?}");
+    //let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
+    //let payload = response.into_inner().payload().unwrap();
+    //println!("payload: {payload:?}");
 
     let table_client = service.clone().table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
     {
         use client::StartSession;
+
+        let tx_settings = TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))};
+        let selector = TxSelector::BeginTx(tx_settings);
+        let query = "SELECT 1+1 as sum, 2*2 as mul";
         let mut session = table_client.start_session().await.unwrap();
-        session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
+        let x = session.execute_data_query(ExecuteDataQueryRequest{
+            tx_control: Some(TransactionControl{commit_tx: false, tx_selector: Some(selector.clone())}),
+            query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
+            ..Default::default()
+        }).await.unwrap();
+
+        println!("\nresponse: {x:?}\n");
+        let payload = x.into_inner().payload();
+        println!("payload: {:?}", payload);
+
+        let tx_id = payload.unwrap().tx_meta.unwrap().id;
+        let selector = TxSelector::TxId(tx_id);
+        
+        let x = session.execute_data_query(ExecuteDataQueryRequest{
+            tx_control: Some(TransactionControl{commit_tx: false, tx_selector: Some(selector.clone())}),
+            query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
+            ..Default::default()
+        }).await.unwrap();
+
+        println!("\nx: {x:?}");
+        let payload = x.into_inner().payload();
+        println!("\npayload: {payload:?}")
+        //session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
     }
     tokio::time::sleep(Duration::from_secs(1)).await;
     
