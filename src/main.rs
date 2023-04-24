@@ -44,29 +44,28 @@ pub async fn main() {
         let tx_settings = TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))};
         let selector = TxSelector::BeginTx(tx_settings);
         let query = "SELECT 1+1 as sum, 2*2 as mul";
-        let mut session = table_client.start_session().await.unwrap();
-        let x = session.execute_data_query(ExecuteDataQueryRequest{
-            tx_control: Some(TransactionControl{commit_tx: false, tx_selector: Some(selector.clone())}),
+        let session = table_client.start_session().await.unwrap();
+        let mut transaction = client::YdbTransaction::create(session).await.unwrap();
+        let x = transaction.execute_data_query(ExecuteDataQueryRequest{
             query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
             ..Default::default()
         }).await.unwrap();
 
-        println!("\nresponse: {x:?}\n");
         let payload = x.into_inner().payload();
         println!("payload: {:?}", payload);
-
-        let tx_id = payload.unwrap().tx_meta.unwrap().id;
-        let selector = TxSelector::TxId(tx_id);
         
-        let x = session.execute_data_query(ExecuteDataQueryRequest{
-            tx_control: Some(TransactionControl{commit_tx: false, tx_selector: Some(selector.clone())}),
+        let x = transaction.execute_data_query(ExecuteDataQueryRequest{
             query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
             ..Default::default()
         }).await.unwrap();
 
         println!("\nx: {x:?}");
         let payload = x.into_inner().payload();
-        println!("\npayload: {payload:?}")
+        println!("\npayload: {payload:?}");
+
+
+        let commit = transaction.rollback().await.unwrap();
+        println!("commit: {commit:?}");
         //session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
     }
     tokio::time::sleep(Duration::from_secs(1)).await;

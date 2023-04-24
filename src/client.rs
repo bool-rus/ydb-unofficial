@@ -16,8 +16,8 @@ use crate::generated::ydb::table::transaction_control::TxSelector;
 use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
 use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
+use crate::generated::ydb::table_stats::QueryStats;
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
-
 
 pub fn create_endpoint(uri: Uri) -> Endpoint {
     let mut res = Endpoint::from(uri);
@@ -197,6 +197,25 @@ impl<C: Credentials> YdbTransaction<C> {
         let tx_id = response.into_inner().payload()?.tx_meta.unwrap().id;
         let tx_control = Some(TransactionControl{commit_tx: false, tx_selector: Some(TxSelector::TxId(tx_id))});
         Ok(Self {tx_control, client})
+    }
+    fn invoke_tx_id(&self) -> String {
+        if let TxSelector::TxId(tx_id) = self.tx_control.clone().unwrap().tx_selector.unwrap() {
+            tx_id
+        } else {
+            panic!("looks like a bug")
+        }
+    }
+    pub async fn commit(&mut self) -> Result<CommitTransactionResult, YdbError> {
+        let tx_id = self.invoke_tx_id();
+        let response = self.client.commit_transaction(CommitTransactionRequest {tx_id, ..Default::default()}).await?;
+        let result = response.into_inner().payload()?;
+        Ok(result)
+    }
+    pub async fn rollback(&mut self) -> Result<(), YdbError> {
+        let tx_id = self.invoke_tx_id();
+        let response = self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
+        println!("rollback response: {response:?}");
+        Ok(())
     }
 
     delegate!{ with tx_control:

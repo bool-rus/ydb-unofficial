@@ -58,4 +58,5 @@ payloaded!(
     CreateSessionResponse: CreateSessionResult,
     ExecuteDataQueryResponse: ExecuteQueryResult,
     BeginTransactionResponse: BeginTransactionResult,
+    CommitTransactionResponse: CommitTransactionResult,
 );
