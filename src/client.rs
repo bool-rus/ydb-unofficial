@@ -60,11 +60,11 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 #[derive(Clone)]
 pub struct YdbService<C: Credentials>(InterceptedService<Channel, DBInterceptor<C>>);
 
-use tonic::client::GrpcService as Service;
+use tower::Service as Service1;
 use tonic::body::BoxBody as Body;
 
-impl<C: Credentials> Service<Body> for YdbService<C> {
-    type ResponseBody = Body;
+impl<C: Credentials> Service1<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbService<C> {
+    type Response = tonic::codegen::http::Response<tonic::body::BoxBody>;
 
     type Error = tonic::transport::Error;
 

@@ -5,7 +5,7 @@ use std::{env, time::Duration};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
 use exper::YdbResponse;
 
-use crate::generated::ydb::table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector};
+use crate::generated::ydb::{table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector}, discovery::ListEndpointsRequest};
 
 use self::client::YdbService;
 
@@ -32,9 +32,9 @@ pub async fn main() {
 
     let mut client = service.clone().discovery();
     //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
-    //let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
-    //let payload = response.into_inner().payload().unwrap();
-    //println!("payload: {payload:?}");
+    let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
+    let payload = response.into_inner().payload().unwrap();
+    println!("payload: {payload:?}\n");
 
     let table_client = service.clone().table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
