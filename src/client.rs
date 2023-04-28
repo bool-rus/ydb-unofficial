@@ -61,7 +61,6 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 pub struct YdbService<C: Credentials>(InterceptedService<Channel, DBInterceptor<C>>);
 
 use tower::Service as Service1;
-use tonic::body::BoxBody as Body;
 
 impl<C: Credentials> Service1<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbService<C> {
     type Response = tonic::codegen::http::Response<tonic::body::BoxBody>;
@@ -88,7 +87,7 @@ impl<C: Credentials> YdbService<C> {
             .service(channel);
         YdbService(service)
     }
-    pub fn discovery(self) -> DiscoveryServiceClient<Self> {
+    pub fn discovery(&mut self) -> DiscoveryServiceClient<&mut Self> {
         DiscoveryServiceClient::new(self)
     }
     pub fn table(self) -> TableServiceClient<Self> {

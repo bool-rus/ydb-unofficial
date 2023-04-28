@@ -29,8 +29,8 @@ pub async fn main() {
     let service = YdbService::new(channel, db_name.try_into().unwrap(), creds.to_owned());
 
     //client::Client::new(url, db_name, creds.to_owned()).await.unwrap();
-
-    let mut client = service.clone().discovery();
+    let mut xx = service.clone();
+    let mut client = xx.discovery();
     //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
     let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
     let payload = response.into_inner().payload().unwrap();
