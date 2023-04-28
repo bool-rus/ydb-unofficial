@@ -90,45 +90,36 @@ impl<C: Credentials> YdbService<C> {
     pub fn discovery(&mut self) -> DiscoveryServiceClient<&mut Self> {
         DiscoveryServiceClient::new(self)
     }
-    pub fn table(self) -> TableServiceClient<Self> {
+    pub fn table(&mut self) -> TableServiceClient<&mut Self> {
         TableServiceClient::new(self)
     }
 }
 
 type YdbError = Box<dyn Error>;
 
-pub struct WithSession<C: Credentials> {
+pub struct WithSession<'a, C: Credentials> {
     session_id: String,
-    client: TableServiceClient<YdbService<C>>
+    client: Option<TableServiceClient<&'a mut YdbService<C>>>
 }
 
 #[async_trait]
-pub trait StartSession<C: Credentials> {
-    async fn start_session(self) -> Result<WithSession<C>, YdbError>;
+pub trait StartSession<'a, C: Credentials> {
+    async fn start_session(self) -> Result<WithSession<'a, C>, YdbError>;
 }
 #[async_trait]
-impl<C: Credentials> StartSession<C> for TableServiceClient<YdbService<C>> {
-    async fn start_session(mut self) -> Result<WithSession<C>, YdbError> {
+impl<'a, C: Credentials> StartSession<'a, C> for TableServiceClient<&'a mut YdbService<C>> {
+    async fn start_session(mut self) -> Result<WithSession<'a, C>, YdbError> {
         let response = self.create_session(CreateSessionRequest::default()).await?;
         let session_id = response.into_inner().payload().unwrap().session_id;
-        Ok(WithSession{session_id, client: self})
+        Ok(WithSession{session_id, client: Some(self)})
     }
 }
 
-impl<C: Credentials> Drop for WithSession<C> {
+impl<'a, C: Credentials> Drop for WithSession<'a, C> {
     fn drop(&mut self) {
-        let WithSession {session_id, client} = self;
-        let session_id = session_id.clone();
-        println!("session: {session_id}");
-        let mut client = client.clone();
-        tokio::spawn(async move { //TODO: bad pratices... or not?
-            let res = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await;
-            if let Some(e) = res.err() {
-                println!("Error on closing session: {e}");
-            } else {
-                println!("Session closed");
-            }
-        });
+        if self.client.is_some() {
+            println!("Err: session not closed");
+        }
     }
 }
 
@@ -137,12 +128,21 @@ macro_rules! delegate {
     (with $field:ident : $(fn $fun:ident($arg:ty) -> $ret:ty;)+) => { $(
         pub async fn $fun(&mut self, mut req: $arg) -> Result<tonic::Response<$ret>, tonic::Status> {
             req.$field = self.$field.clone();
-            self.client.$fun(req).await
+            self.client().$fun(req).await
         }
     )+} 
 }
 
-impl <C: Credentials + Send> WithSession<C> {
+impl <'a, C: Credentials + Send> WithSession<'a, C> {
+    fn client(&mut self) -> &mut TableServiceClient<&'a mut YdbService<C>> {
+        self.client.as_mut().unwrap()
+    }
+    pub async fn stop_session(&mut self) -> Result<DeleteSessionResponse, YdbError> {
+        let session_id = self.session_id.clone();
+        let result = self.client().delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await;
+        self.client = None;
+        Ok(result?.into_inner())
+    }
     pub async fn query(&mut self, query: String) -> Result<(), YdbError> {
         let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
         let selector = TxSelector::BeginTx(tx_settings);
@@ -184,13 +184,16 @@ impl <C: Credentials + Send> WithSession<C> {
 }
 
 
-pub struct YdbTransaction<C: Credentials> {
+pub struct YdbTransaction<'a, C: Credentials> {
     tx_control: Option<TransactionControl>,
-    client: WithSession<C>,
+    client: WithSession<'a, C>,
 }
 
-impl<C: Credentials> YdbTransaction<C> {
-    pub async fn create(mut client: WithSession<C>) -> Result<Self, YdbError> {
+impl<'a, C: Credentials> YdbTransaction<'a, C> {
+    fn client(&mut self) -> &mut WithSession<'a, C> {
+        &mut self.client
+    }
+    pub async fn create(mut client: WithSession<'a, C>) -> Result<YdbTransaction<'a, C>, YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
         let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
         let tx_id = response.into_inner().payload()?.tx_meta.unwrap().id;
@@ -204,21 +207,44 @@ impl<C: Credentials> YdbTransaction<C> {
             panic!("looks like a bug")
         }
     }
-    pub async fn commit(&mut self) -> Result<CommitTransactionResult, YdbError> {
+    async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.commit_transaction(CommitTransactionRequest {tx_id, ..Default::default()}).await?;
-        let result = response.into_inner().payload()?;
+        let result = response.into_inner().payload()?; //что там может быть полезного?
         Ok(result)
     }
-    pub async fn rollback(&mut self) -> Result<(), YdbError> {
+    pub async fn commit(mut self) -> (WithSession<'a, C>, Result<CommitTransactionResult, YdbError>) {
+        let result = self.commit_inner().await;
+        (self.client, result)
+    }
+    async fn rollback_inner(&mut self) -> Result<(), YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
         println!("rollback response: {response:?}");
         Ok(())
+    }
+    pub async fn rollback(mut self) -> (WithSession<'a, C>, Result<(), YdbError> ) {
+        let result = self.rollback_inner().await;
+        (self.client, result)
     }
 
     delegate!{ with tx_control:
         fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
     }
 
+}
+
+
+struct X<'a> {
+    x: Option<Y<'a>>
+}
+
+struct Y<'a> {
+    v: &'a mut u32,
+}
+
+impl<'a> X<'a> {
+    fn x(&mut self) -> &'a mut Y {
+        self.x.as_mut().unwrap()
+    }
 }

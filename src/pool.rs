@@ -14,8 +14,8 @@ struct YdbEndpoint {
     connections: AtomicU32,
 }
 
-pub struct Endpoints {
-    endpoints: Vec<Arc<YdbEndpoint>>,
+pub struct YdbEndpoints {
+    endpoints: Vec<EndpointInfo>,
     
 }
 
@@ -40,8 +40,16 @@ impl From<&EndpointInfo> for YdbEndpoint {
     }
 }
 
+fn make_endpoint(info: &EndpointInfo) -> Endpoint {
+    let uri: tonic::transport::Uri = format!("{}:{}", info.address, info.port).try_into().unwrap();
+    let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
+    if info.ssl {
+        e = e.tls_config(Default::default()).unwrap()
+    }
+    e
+}
 
-impl Endpoints {
+impl YdbEndpoints {
     pub fn next_endpoint(&self) -> Endpoint {
         let mut rng = rand::thread_rng();
         let rnd: usize = rng.gen();
@@ -52,13 +60,13 @@ impl Endpoints {
         let e = endpoints.iter().map(|e|{
             let count = (e.load_factor.abs() * 10.0) as usize + 1;
             [e].into_iter().cycle().take(count)
-        }).flatten().cycle().nth(rnd % 1000).unwrap();
-        e.inner.clone()
+        }).flatten().cycle().nth(rnd % size).unwrap();
+        make_endpoint(e)
     }
 }
 
 
-impl<C: Credentials> Service<C> for Endpoints {
+impl<C: Credentials> Service<C> for YdbEndpoints {
     type Response = PendingRequests<YdbService<C>>;
 
     type Error = Infallible;
@@ -90,7 +98,7 @@ pub fn create_pool<C: Credentials>(creds: C) -> tower::balance::pool::Pool<YdbPo
 pub struct ConnectionManager<C> {
     creds: C,
     db_name: AsciiValue,
-    endpoints: Endpoints,
+    endpoints: YdbEndpoints,
 }
 
 #[async_trait::async_trait]
@@ -117,7 +125,7 @@ fn make_pool() -> deadpool::managed::Pool<ConnectionManager<String>> {
     let man = ConnectionManager {
         creds: "bgg".to_owned(),
         db_name: "xx".try_into().unwrap(),
-        endpoints: Endpoints { endpoints: Default::default() },
+        endpoints: YdbEndpoints { endpoints: Default::default() },
     };
     Pool::builder(man).build().unwrap()
 }

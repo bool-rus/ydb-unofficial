@@ -26,7 +26,7 @@ pub async fn main() {
     //println!("tls config: {tls_config:?}");
     let ep = client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
-    let service = YdbService::new(channel, db_name.try_into().unwrap(), creds.to_owned());
+    let mut service = YdbService::new(channel, db_name.try_into().unwrap(), creds.to_owned());
 
     //client::Client::new(url, db_name, creds.to_owned()).await.unwrap();
     let mut xx = service.clone();
@@ -36,7 +36,7 @@ pub async fn main() {
     let payload = response.into_inner().payload().unwrap();
     println!("payload: {payload:?}\n");
 
-    let table_client = service.clone().table();
+    let table_client = service.table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
     {
         use client::StartSession;
@@ -64,8 +64,8 @@ pub async fn main() {
         println!("\npayload: {payload:?}");
 
 
-        let commit = transaction.rollback().await.unwrap();
-        println!("commit: {commit:?}");
+        let (mut session, _) = transaction.commit().await;
+        session.stop_session().await.unwrap();
         //session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
     }
     tokio::time::sleep(Duration::from_secs(1)).await;
