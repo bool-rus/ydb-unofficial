@@ -1,11 +1,10 @@
 
 use std::{vec, time::Duration};
-use std::sync::{atomic::AtomicU32, Arc};
 
 use deadpool::managed::{Manager, Pool, PoolBuilder};
 
 use tonic::transport::{Endpoint, Uri};
-use tower::{ServiceExt};
+use tower::ServiceExt;
 
 use crate::exper::YdbResponse;
 use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
@@ -14,7 +13,6 @@ use crate::client::{Credentials, YdbService, AsciiValue, YdbError};
 struct YdbEndpoint {
     inner: Endpoint,
     load_factor: f32,
-    connections: AtomicU32,
 }
 
 type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
@@ -35,7 +33,6 @@ impl From<&EndpointInfo> for YdbEndpoint {
         Self {
             inner,
             load_factor: info.load_factor,
-            connections: Default::default(),
         }
     }
 }

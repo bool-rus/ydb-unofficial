@@ -1,7 +1,6 @@
 
 use std::error::Error;
 
-use async_trait::async_trait;
 
 use table::*;
 
@@ -9,7 +8,6 @@ use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
-use crate::client;
 use crate::exper::YdbResponse;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
 use crate::generated::ydb::table::query::Query;
@@ -17,7 +15,6 @@ use crate::generated::ydb::table::transaction_control::TxSelector;
 use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
 use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
-use crate::generated::ydb::table_stats::QueryStats;
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
 
 pub fn create_endpoint(uri: Uri) -> Endpoint {
@@ -220,7 +217,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
     }
     async fn rollback_inner(&mut self) -> Result<(), YdbError> {
         let tx_id = self.invoke_tx_id();
-        let response = self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
+        self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
         Ok(())
     }
     pub async fn rollback(mut self) -> (TableClientWithSession<'a, C>, Result<(), YdbError> ) {
