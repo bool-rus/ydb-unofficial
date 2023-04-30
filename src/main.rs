@@ -17,6 +17,7 @@ mod generated;
 
 #[tokio::main]
 pub async fn main() {
+    init_logger();
     println!("hello world");
     let url = "grpcs://ydb.serverless.yandexcloud.net:2135";
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
@@ -26,25 +27,19 @@ pub async fn main() {
     //println!("tls config: {tls_config:?}");
     let ep = client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
+    {
     let mut service = YdbService::new(channel, db_name.try_into().unwrap(), creds.to_owned());
 
     //client::Client::new(url, db_name, creds.to_owned()).await.unwrap();
-    let mut xx = service.clone();
-    let mut client = xx.discovery();
+    let mut client = service.discovery();
     //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
     let response = client.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
     let payload = response.into_inner().payload().unwrap();
     println!("payload: {payload:?}\n");
 
-    let table_client = service.table();
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
-    {
-        use client::StartSession;
-
-        let tx_settings = TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))};
-        let selector = TxSelector::BeginTx(tx_settings);
         let query = "SELECT 1+1 as sum, 2*2 as mul";
-        let session = table_client.start_session().await.unwrap();
+        let session = service.table().await.unwrap();
         let mut transaction = client::YdbTransaction::create(session).await.unwrap();
         let x = transaction.execute_data_query(ExecuteDataQueryRequest{
             query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
@@ -65,13 +60,19 @@ pub async fn main() {
 
 
         let (mut session, _) = transaction.commit().await;
-        session.stop_session().await.unwrap();
         //session.query("SELECT 1+1 as sum, 2*2 as mul".into()).await.unwrap();
     }
     tokio::time::sleep(Duration::from_secs(1)).await;
     
 }
 
+
+fn init_logger() {
+    use simplelog::*;
+    let mut builder = ConfigBuilder::new();
+    builder.set_time_level(LevelFilter::Off);
+    TermLogger::init(LevelFilter::Debug, builder.build(), TerminalMode::Mixed, ColorChoice::Auto).unwrap();
+}
 
 
 trait Foo {type Inner;}
