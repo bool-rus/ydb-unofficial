@@ -144,7 +144,7 @@ macro_rules! delegate {
 
 impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
 
-    pub async fn query(&mut self, query: String) -> Result<(), YdbError> {
+    pub async fn query(&mut self, query: String) -> Result<(), YdbError> { //TODO: грохнуть это
         let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
         let selector = TxSelector::BeginTx(tx_settings);
         let x = self.execute_data_query(ExecuteDataQueryRequest{
@@ -221,7 +221,6 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
     async fn rollback_inner(&mut self) -> Result<(), YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
-        println!("rollback response: {response:?}");
         Ok(())
     }
     pub async fn rollback(mut self) -> (TableClientWithSession<'a, C>, Result<(), YdbError> ) {

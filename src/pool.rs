@@ -1,12 +1,15 @@
 
-use std::{sync::{atomic::AtomicU32, Arc}, collections::hash_map::RandomState, vec, convert::Infallible, rc::Rc, task::Poll, ops::Deref, time::Duration};
+use std::{vec, time::Duration};
+use std::sync::{atomic::AtomicU32, Arc};
 
 use deadpool::managed::{Manager, Pool, PoolBuilder};
-use std::sync::Mutex;
-use tonic::{transport::{Channel, Endpoint, ClientTlsConfig}, codegen::BoxFuture};
-use tower::{Service, load::{PendingRequests, CompleteOnResponse}, ServiceExt};
 
-use crate::{generated::{ydb::{discovery::{ListEndpointsResult, EndpointInfo, WhoAmIRequest, self, ListEndpointsRequest}, table::v1::table_service_client::TableServiceClient, scheme::ListDirectoryRequest}, DiscoveryServiceClient}, client::{Credentials, YdbService, AsciiValue, YdbError}, exper::YdbResponse};
+use tonic::transport::{Endpoint, Uri};
+use tower::{ServiceExt};
+
+use crate::exper::YdbResponse;
+use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
+use crate::client::{Credentials, YdbService, AsciiValue, YdbError};
 
 struct YdbEndpoint {
     inner: Endpoint,
@@ -38,12 +41,18 @@ impl From<&EndpointInfo> for YdbEndpoint {
 }
 
 fn make_endpoint(info: &EndpointInfo) -> Endpoint {
-    let uri: tonic::transport::Uri = format!("{}:{}", info.address, info.port).try_into().unwrap();
+    let uri: tonic::transport::Uri = format!("{}://{}:{}", info.scheme(), info.address, info.port).try_into().unwrap();
     let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
     if info.ssl {
         e = e.tls_config(Default::default()).unwrap()
     }
     e
+}
+
+impl EndpointInfo {
+    pub fn scheme(&self) -> &'static str {
+        if self.ssl { "grpcs" } else { "grpc" }
+    }
 }
 
 
@@ -57,7 +66,7 @@ pub fn create_pool<C: Credentials>(creds: C) -> tower::balance::pool::Pool<YdbPo
 
 */
 
-struct ConnectionManager<C> {
+pub struct ConnectionManager<C> {
     creds: C,
     db_name: AsciiValue,
     endpoints: YdbEndpoints,
@@ -70,7 +79,7 @@ impl<C: Credentials> ConnectionManager<C> {
         use rand::Rng;
         let endpoints = self.endpoints.read().unwrap().clone();
 
-        let size = endpoints.iter().fold(0usize, |s, e|(e.load_factor.abs() * 10.0) as usize + 1);
+        let size = endpoints.iter().fold(0usize, |_s, e|(e.load_factor.abs() * 10.0) as usize + 1);
         let e = endpoints.iter().map(|e|{
             let count = (e.load_factor.abs() * 10.0) as usize + 1;
             [e].into_iter().cycle().take(count)
@@ -100,25 +109,6 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
     }
 }
 
-fn make_pool() -> deadpool::managed::Pool<ConnectionManager<String>> { 
-    let man = ConnectionManager {
-        creds: "bgg".to_owned(),
-        db_name: "xx".try_into().unwrap(),
-        endpoints: Default::default(),
-    };
-    let pool = Pool::builder(man).build().unwrap();
-    pool.status();
-    pool
-}
-
-async fn use_pool() {
-    let pool = make_pool();
-    let mut x = pool.get().await.unwrap();
-    let client = x.discovery();
-    let x = Arc::new(client);
-
-}
-
 pub struct YdbPoolBuilder<C: Credentials + Send + Sync> {
     delegate: PoolBuilder<ConnectionManager<C>>,
     update_interval: Duration,
@@ -128,7 +118,7 @@ impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
     pub fn new(creds: C, db_name: AsciiValue, endpoint: EndpointInfo) -> Self {
         let endpoints =  std::sync::RwLock::new(vec![endpoint]);
         let delegate = Pool::builder(ConnectionManager {creds, db_name, endpoints});
-        let update_interval = Duration::from_secs(60);
+        let update_interval = Duration::from_secs(1);
         Self {delegate, update_interval}
     }
     pub fn build(self) -> Result<Pool<ConnectionManager<C>>, deadpool::managed::BuildError<tonic::transport::Error>> {
@@ -138,6 +128,7 @@ impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
         tokio::spawn(async move {
             loop {
                 if pool.is_closed() {
+                    log::debug!("Connection pool closed");
                     break;
                 }
                 if let Err(e) = update_endpoints(&pool, db_name.clone()).await {
@@ -158,4 +149,20 @@ async fn update_endpoints<C: Credentials + Send + Sync>(pool: &Pool<ConnectionMa
     log::debug!("Pool endpoints updated ({} endpoints)", endpoints.len());
     *pool.manager().endpoints.write().unwrap() = endpoints;
     Ok(())
+}
+
+impl TryFrom<Uri> for EndpointInfo {
+    type Error = String;
+
+    fn try_from(value: Uri) -> Result<Self, Self::Error> {
+        let mut e = EndpointInfo::default();
+        e.ssl = match value.scheme_str() {
+            Some("grpc") => false,
+            Some("grpcs") => true,
+            _ => return Err("Unknown protocol".to_owned()),
+        };
+        e.address = value.host().ok_or("no host")?.to_owned();
+        e.port = value.port_u16().ok_or("no port")? as u32;
+        Ok(e)
+    }
 }
