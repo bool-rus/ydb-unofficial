@@ -21,13 +21,11 @@ mod generated;
 #[tokio::main]
 pub async fn main() {
     init_logger();
-    println!("hello world");
     let url = "grpcs://ydb.serverless.yandexcloud.net:2135";
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
     //let url = "grpcs://localhost:2135";
     //let db_name = "/local";
     let creds = env::var("TOKEN").unwrap();
-    //println!("tls config: {tls_config:?}");
     let uri: Uri = url.try_into().unwrap();
     let ep = client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
@@ -77,7 +75,7 @@ pub async fn main() {
 fn init_logger() {
     use simplelog::*;
     let mut builder = ConfigBuilder::new();
-    builder.set_time_level(LevelFilter::Debug);
+    builder.set_time_level(LevelFilter::Error);
     TermLogger::init(LevelFilter::Debug, builder.build(), TerminalMode::Mixed, ColorChoice::Auto).unwrap();
 }
 
