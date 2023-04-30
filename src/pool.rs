@@ -1,7 +1,7 @@
 
 use std::{vec, time::Duration};
 
-use deadpool::managed::{Manager, Pool, PoolBuilder};
+use deadpool::managed::{Manager, Pool, PoolBuilder, PoolConfig, Hook};
 
 use tonic::transport::{Endpoint, Uri};
 use tower::ServiceExt;
@@ -107,19 +107,44 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
 }
 
 pub struct YdbPoolBuilder<C: Credentials + Send + Sync> {
-    delegate: PoolBuilder<ConnectionManager<C>>,
+    inner: PoolBuilder<ConnectionManager<C>>,
     update_interval: Duration,
+}
+
+macro_rules! delegate {
+    ($( $fun:ident($param:ty), )+) => { $(
+        pub fn $fun(mut self, v: $param) -> Self {
+            self.inner = self.inner.$fun(v);
+            self
+        }
+    )+ };
 }
 
 impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
     pub fn new(creds: C, db_name: AsciiValue, endpoint: EndpointInfo) -> Self {
         let endpoints =  std::sync::RwLock::new(vec![endpoint]);
-        let delegate = Pool::builder(ConnectionManager {creds, db_name, endpoints});
+        let inner = Pool::builder(ConnectionManager {creds, db_name, endpoints});
         let update_interval = Duration::from_secs(1);
-        Self {delegate, update_interval}
+        Self {inner, update_interval}
+    }
+    pub fn update_interval(mut self, interval: Duration) -> Self {
+        self.update_interval = interval;
+        self
+    }
+    delegate!{ 
+        config(PoolConfig),
+        create_timeout(Option<Duration>),
+        max_size(usize),
+        post_create(impl Into<Hook<ConnectionManager<C>>>),
+        post_recycle(impl Into<Hook<ConnectionManager<C>>>),
+        pre_recycle(impl Into<Hook<ConnectionManager<C>>>),
+        recycle_timeout(Option<Duration>),
+        runtime(deadpool::Runtime),
+        timeouts(deadpool::managed::Timeouts),
+        wait_timeout(Option<Duration>),
     }
     pub fn build(self) -> Result<Pool<ConnectionManager<C>>, deadpool::managed::BuildError<tonic::transport::Error>> {
-        let pool = self.delegate.build()?;
+        let pool = self.inner.build()?;
         let result = pool.clone();
         let db_name = pool.manager().db_name.to_str().unwrap().to_owned();
         tokio::spawn(async move {
