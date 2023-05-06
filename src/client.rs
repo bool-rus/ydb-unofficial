@@ -8,7 +8,7 @@ use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
-use crate::exper::YdbResponse;
+use crate::payload::YdbResponse;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
 use crate::generated::ydb::table::query::Query;
 use crate::generated::ydb::table::transaction_control::TxSelector;
@@ -119,6 +119,7 @@ impl<C: Credentials> Drop for YdbService<C> {
                 }
             });
         }
+        log::debug!("YdbService closed");
     }
 }
 
@@ -188,9 +189,6 @@ pub struct YdbTransaction<'a, C: Credentials> {
 }
 
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
-    fn client(&mut self) -> &mut TableClientWithSession<'a, C> {
-        &mut self.client
-    }
     pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
         let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
@@ -229,19 +227,4 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
     }
 
-}
-
-
-struct X<'a> {
-    x: Option<Y<'a>>
-}
-
-struct Y<'a> {
-    v: &'a mut u32,
-}
-
-impl<'a> X<'a> {
-    fn x(&mut self) -> &'a mut Y {
-        self.x.as_mut().unwrap()
-    }
 }

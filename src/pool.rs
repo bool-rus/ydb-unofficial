@@ -6,36 +6,13 @@ use deadpool::managed::{Manager, Pool, PoolBuilder, PoolConfig, Hook};
 use tonic::transport::{Endpoint, Uri};
 use tower::ServiceExt;
 
-use crate::exper::YdbResponse;
+use crate::payload::YdbResponse;
 use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
 use crate::client::{Credentials, YdbService, AsciiValue, YdbError};
 
-struct YdbEndpoint {
-    inner: Endpoint,
-    load_factor: f32,
-}
 
 type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
 
-impl Into<Endpoint> for YdbEndpoint {
-    fn into(self) -> Endpoint {
-        self.inner
-    }
-}
-
-impl From<&EndpointInfo> for YdbEndpoint {
-    fn from(info: &EndpointInfo) -> Self {
-        let uri: tonic::transport::Uri = format!("{}:{}", info.address, info.port).try_into().unwrap();
-        let mut inner = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
-        if info.ssl {
-            inner = inner.tls_config(Default::default()).unwrap()
-        }
-        Self {
-            inner,
-            load_factor: info.load_factor,
-        }
-    }
-}
 
 fn make_endpoint(info: &EndpointInfo) -> Endpoint {
     let uri: tonic::transport::Uri = format!("{}://{}:{}", info.scheme(), info.address, info.port).try_into().unwrap();
