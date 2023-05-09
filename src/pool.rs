@@ -6,9 +6,10 @@ use deadpool::managed::{Manager, Pool, PoolBuilder, PoolConfig, Hook};
 use tonic::transport::{Endpoint, Uri};
 use tower::ServiceExt;
 
-use crate::payload::YdbResponse;
+use crate::payload::YdbResponseWithResult;
 use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
-use crate::client::{Credentials, YdbService, AsciiValue, YdbError};
+use crate::client::{Credentials, YdbService, AsciiValue};
+use crate::YdbError;
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
@@ -140,11 +141,11 @@ impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
     }
 }
 
-async fn update_endpoints<C: Credentials + Send + Sync>(pool: &Pool<ConnectionManager<C>>, database: String) -> Result<(), YdbError> {
+async fn update_endpoints<C: Credentials + Send + Sync>(pool: &Pool<ConnectionManager<C>>, database: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut service = pool.get().await?;
     let mut discovery = service.discovery();
     let response = discovery.list_endpoints(ListEndpointsRequest{database, ..Default::default()}).await?; 
-    let endpoints = response.into_inner().payload()?.endpoints;
+    let endpoints = response.into_inner().result()?.endpoints;
     log::debug!("Pool endpoints updated ({} endpoints)", endpoints.len());
     *pool.manager().endpoints.write().unwrap() = endpoints;
     Ok(())

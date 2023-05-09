@@ -1,6 +1,4 @@
-
-use std::error::Error;
-
+use crate::YdbError;
 
 use table::*;
 
@@ -8,7 +6,7 @@ use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
-use crate::payload::YdbResponse;
+use crate::payload::YdbResponseWithResult;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
 use crate::generated::ydb::table::query::Query;
 use crate::generated::ydb::table::transaction_control::TxSelector;
@@ -96,7 +94,7 @@ impl<C: Credentials> YdbService<C> {
         } else {
             let mut client = TableServiceClient::new(&mut self.inner);
             let response = client.create_session(CreateSessionRequest::default()).await?;
-            let session_id = response.into_inner().payload()?.session_id;
+            let session_id = response.into_inner().result()?.session_id;
             log::debug!("Session created: {session_id}");
             self.session_id = Some(session_id.clone());
             session_id
@@ -124,8 +122,6 @@ impl<C: Credentials> Drop for YdbService<C> {
 }
 
 
-pub type YdbError = Box<dyn Error>;
-
 pub struct TableClientWithSession<'a, C: Credentials> {
     session_id: String,
     client: TableServiceClient<&'a mut YdbService<C>>,
@@ -152,7 +148,7 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         }).await?;
         println!("\nresponse: {x:?}\n");
         //let status = x.into_inner().operation.unwrap().status();
-        let result_sets = x.into_inner().payload().unwrap().result_sets;
+        let result_sets = x.into_inner().result().unwrap().result_sets;
         for rs in result_sets {
             for row in rs.rows {
                 for item in row.items {
@@ -189,10 +185,10 @@ pub struct YdbTransaction<'a, C: Credentials> {
 }
 
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
-    pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, YdbError> {
+    pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, crate::error::YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
         let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
-        let tx_id = response.into_inner().payload()?.tx_meta.unwrap().id;
+        let tx_id = response.into_inner().result()?.tx_meta.unwrap().id;
         let tx_control = Some(TransactionControl{commit_tx: false, tx_selector: Some(TxSelector::TxId(tx_id))});
         Ok(Self {tx_control, client})
     }
@@ -206,7 +202,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
     async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.commit_transaction(CommitTransactionRequest {tx_id, ..Default::default()}).await?;
-        let result = response.into_inner().payload()?; //что там может быть полезного?
+        let result = response.into_inner().result()?; //что там может быть полезного?
         Ok(result)
     }
     pub async fn commit(mut self) -> (TableClientWithSession<'a, C>, Result<CommitTransactionResult, YdbError>) {

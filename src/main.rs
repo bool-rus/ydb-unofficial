@@ -1,13 +1,14 @@
 #![allow(dead_code)]
+use std::error::Error;
 use std::{env, time::Duration};
 
 use tokio::sync::futures;
 use ydb_unofficial::generated::ydb::table::{ExecuteScanQueryRequest, ExecuteSchemeQueryRequest};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
-use ydb_unofficial::{YdbResponse, generated::ydb::r#type::PrimitiveTypeId};
+use ydb_unofficial::{YdbResponseWithResult, generated::ydb::r#type::PrimitiveTypeId};
 use ydb_unofficial::pool::YdbPoolBuilder;
 use tonic::transport::Uri;
-use ydb_unofficial::{pool::ConnectionManager, client::YdbError, generated::ydb::{table::{CreateTableRequest, ColumnMeta}}};
+use ydb_unofficial::{pool::ConnectionManager, YdbError, generated::ydb::{table::{CreateTableRequest, ColumnMeta}}};
 
 use ydb_unofficial::generated::ydb::{table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector}, discovery::ListEndpointsRequest};
 
@@ -35,7 +36,7 @@ pub async fn main() {
         let mut discovery = discovery.discovery();
         //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
         let response = discovery.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
-        let payload = response.into_inner().payload().unwrap();
+        let payload = response.into_inner().result().unwrap();
         log::info!("payload: {payload:?}\n");
 
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
@@ -47,7 +48,7 @@ pub async fn main() {
             ..Default::default()
         }).await.unwrap();
 
-        let payload = x.into_inner().payload();
+        let payload = x.into_inner().result();
         log::info!("payload: {:?}", payload);
         
         let x = transaction.execute_data_query(ExecuteDataQueryRequest{
@@ -56,7 +57,7 @@ pub async fn main() {
         }).await.unwrap();
 
         log::info!("\nx: {x:?}");
-        let payload = x.into_inner().payload();
+        let payload = x.into_inner().result();
         log::info!("\npayload: {payload:?}");
 
 
@@ -68,7 +69,7 @@ pub async fn main() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     
 }
-async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), YdbError> {
+async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
@@ -78,17 +79,17 @@ async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     log::error!("response: {response:?}");
     Ok(())
 }
-async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), YdbError> {
+async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
-        yql_text: "create table my_table3(id uint64 not null, value utf8 not null, primary key(id))".to_owned(),
+        yql_text: "create table my_table3(id uint64 not null, value utf8, primary key(id))".to_owned(),
         ..Default::default()
     }).await?;
     log::error!("response: {response:?}");
     Ok(())
 }
-async fn create_table(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), YdbError> {
+async fn create_table(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
     let str_type = ydb_unofficial::generated::ydb::Type {r#type: Some(ydb_unofficial::generated::ydb::r#type::Type::TypeId(PrimitiveTypeId::Utf8 as i32))};
     let str_nullable_type = ydb_unofficial::generated::ydb::Type {r#type: Some(ydb_unofficial::generated::ydb::r#type::Type::OptionalType(
         Box::new(ydb_unofficial::generated::ydb::OptionalType {item: Some(Box::new(

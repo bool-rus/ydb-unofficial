@@ -3,37 +3,36 @@ use crate::generated::ydb::{table, discovery, status_ids};
 use table::*;
 use discovery::*;
 use status_ids::StatusCode;
+use thiserror::Error;
 
-#[derive(Debug)]
-pub enum ExtractPayloadError {
+#[derive(Error, Debug)]
+pub enum ExtractResultError {
+    #[error("Empty body of response")]
     Empty,
-    BadSession,
+    #[error("Bad session")] 
+    BadSession, //TODO: наверное, стоит эту ошибку вообще во всех методах для табличного сервиса использовать
+    #[error("Session busy")] 
     SessionBusy,
+    #[error("Cannot parse result")]
     Parse,
+    #[error("Unknown operation status")]
     Unknown,
 }
 
-impl std::fmt::Display for ExtractPayloadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self, f)
-    }
-}
-impl std::error::Error for ExtractPayloadError {}
 
-
-pub trait YdbResponse {
+pub trait YdbResponseWithResult {
     type Payload;
-    fn payload(&self) -> Result<Self::Payload,ExtractPayloadError>;
+    fn result(&self) -> Result<Self::Payload,ExtractResultError>;
 }
 
 
 macro_rules! payloaded {
     ($($x:ty : $p:ty,)+) => {$(
-        impl YdbResponse for $x {
+        impl YdbResponseWithResult for $x {
             type Payload = $p;
-            fn payload(&self) -> Result<Self::Payload, ExtractPayloadError> {
+            fn result(&self) -> Result<Self::Payload, ExtractResultError> {
                 use prost::Message;
-                use ExtractPayloadError::*;
+                use ExtractResultError::*;
                 let operation = self.operation.as_ref().ok_or(Empty)?;
                 match operation.status() {
                     StatusCode::Success => Ok(()),
