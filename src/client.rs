@@ -8,7 +8,6 @@ use tonic::transport::{Endpoint, Channel, Uri};
 
 use crate::payload::YdbResponseWithResult;
 use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
-use crate::generated::ydb::table::query::Query;
 use crate::generated::ydb::table::transaction_control::TxSelector;
 use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
 use crate::generated::ydb::table::transaction_settings::TxMode;
@@ -121,7 +120,6 @@ impl<C: Credentials> Drop for YdbService<C> {
     }
 }
 
-
 pub struct TableClientWithSession<'a, C: Credentials> {
     session_id: String,
     client: TableServiceClient<&'a mut YdbService<C>>,
@@ -129,36 +127,22 @@ pub struct TableClientWithSession<'a, C: Credentials> {
 
 macro_rules! delegate {
     (with $field:ident : $(fn $fun:ident($arg:ty) -> $ret:ty;)+) => { $(
-        pub async fn $fun(&mut self, mut req: $arg) -> Result<tonic::Response<$ret>, tonic::Status> {
+        pub async fn $fun(&mut self, mut req: $arg) -> Result<tonic::Response<$ret>, YdbError> {
             req.$field = self.$field.clone();
-            self.client.$fun(req).await
+            let result = self.client.$fun(req).await?;
+            let status = result.get_ref().operation.as_ref().ok_or(YdbError::EmptyResponse).unwrap().status();
+            use crate::generated::ydb::status_ids::StatusCode;
+            use crate::error::ErrWithOperation;
+            match status {
+                StatusCode::Success => Ok(result),
+                _ => Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap()))),
+            }
         }
     )+} 
 }
 
-impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
 
-    pub async fn query(&mut self, query: String) -> Result<(), YdbError> { //TODO: грохнуть это
-        let tx_settings = TransactionSettings{tx_mode: Some(TxMode::OnlineReadOnly(OnlineModeSettings{allow_inconsistent_reads: true}))};
-        let selector = TxSelector::BeginTx(tx_settings);
-        let x = self.execute_data_query(ExecuteDataQueryRequest{
-            tx_control: Some(TransactionControl{commit_tx: true, tx_selector: Some(selector.clone())}),
-            query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
-            ..Default::default()
-        }).await?;
-        println!("\nresponse: {x:?}\n");
-        //let status = x.into_inner().operation.unwrap().status();
-        let result_sets = x.into_inner().result().unwrap().result_sets;
-        for rs in result_sets {
-            for row in rs.rows {
-                for item in row.items {
-                    println!("item: {item:?}");
-                }
-            }
-        }
-    
-        Ok(())
-    }    
+impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
     delegate!{ with session_id:
         fn create_table(CreateTableRequest) -> CreateTableResponse;
         fn drop_table(DropTableRequest) -> DropTableResponse;
@@ -174,7 +158,10 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         fn begin_transaction(BeginTransactionRequest) -> BeginTransactionResponse;
         fn commit_transaction(CommitTransactionRequest) -> CommitTransactionResponse;
         fn rollback_transaction(RollbackTransactionRequest) -> RollbackTransactionResponse;
-        fn stream_read_table(ReadTableRequest) -> tonic::codec::Streaming<ReadTableResponse>;
+    }
+    pub async fn stream_read_table(&mut self, mut req: ReadTableRequest) -> Result<tonic::Response<tonic::codec::Streaming<ReadTableResponse>>, tonic::Status> {
+        req.session_id = self.session_id.clone();
+        self.client.stream_read_table(req).await
     }
 }
 
@@ -222,5 +209,4 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
     delegate!{ with tx_control:
         fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
     }
-
 }

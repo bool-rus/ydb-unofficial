@@ -73,7 +73,7 @@ async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
-        yql_text: "create table my_table2(id uint64 not null, value utf8, primary key(id))".to_owned(),
+        yql_text: "create table my_table2(id uint64 not null, value utf8 not null, primary key(id))".to_owned(),
         ..Default::default()
     }).await?;
     log::error!("response: {response:?}");
@@ -83,7 +83,7 @@ async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
-        yql_text: "create table my_table3(id uint64 not null, value utf8, primary key(id))".to_owned(),
+        yql_text: "create table my_table3(id xuint64 not null, value utf8, primary key(id))".to_owned(),
         ..Default::default()
     }).await?;
     log::error!("response: {response:?}");

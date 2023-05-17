@@ -9,7 +9,6 @@ use tower::ServiceExt;
 use crate::payload::YdbResponseWithResult;
 use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
 use crate::client::{Credentials, YdbService, AsciiValue};
-use crate::YdbError;
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
