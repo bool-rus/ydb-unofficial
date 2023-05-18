@@ -205,8 +205,8 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         let result = self.rollback_inner().await;
         (self.client, result)
     }
-
-    delegate!{ with tx_control:
-        fn execute_data_query(ExecuteDataQueryRequest) -> ExecuteDataQueryResponse;
+    pub async fn execute_data_query(&mut self, mut req: ExecuteDataQueryRequest) -> Result<tonic::Response<ExecuteDataQueryResponse>,YdbError> {
+        req.tx_control = self.tx_control.clone();
+        self.client.execute_data_query(req).await
     }
 }
