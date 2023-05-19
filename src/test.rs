@@ -3,18 +3,18 @@ use std::error::Error;
 use std::{env, time::Duration};
 
 use tokio::sync::futures;
-use ydb_unofficial::generated::ydb::table::{ExecuteScanQueryRequest, ExecuteSchemeQueryRequest};
+use crate::generated::ydb::table::{ExecuteScanQueryRequest, ExecuteSchemeQueryRequest};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
-use ydb_unofficial::{YdbResponseWithResult, generated::ydb::r#type::PrimitiveTypeId};
-use ydb_unofficial::pool::YdbPoolBuilder;
+use crate::{YdbResponseWithResult, generated::ydb::r#type::PrimitiveTypeId};
+use crate::pool::YdbPoolBuilder;
 use tonic::transport::Uri;
-use ydb_unofficial::{pool::ConnectionManager, YdbError, generated::ydb::{table::{CreateTableRequest, ColumnMeta}}};
+use crate::{pool::ConnectionManager, YdbError, generated::ydb::{table::{CreateTableRequest, ColumnMeta}}};
 
-use ydb_unofficial::generated::ydb::{table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector}, discovery::ListEndpointsRequest};
+use crate::generated::ydb::{table::{ExecuteDataQueryRequest, query::Query, self, TransactionControl, TransactionSettings, transaction_settings::TxMode, transaction_control::TxSelector}, discovery::ListEndpointsRequest};
 
 
-#[tokio::main]
-pub async fn main() {
+#[tokio::test]
+pub async fn test() {
     init_logger();
     let url = "grpcs://ydb.serverless.yandexcloud.net:2135";
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
@@ -22,7 +22,7 @@ pub async fn main() {
     //let db_name = "/local";
     let creds = env::var("TOKEN").unwrap();
     let uri: Uri = url.try_into().unwrap();
-    let ep = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
+    let ep = crate::client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
     let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap()).build().unwrap();
     let f1 = create_table2(&pool, db_name);
@@ -42,7 +42,7 @@ pub async fn main() {
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
         let query = "SELECT 1+1 as sum, 2*2 as mul";
         let session = service.table().await.unwrap();
-        let mut transaction = ydb_unofficial::client::YdbTransaction::create(session).await.unwrap();
+        let mut transaction = crate::client::YdbTransaction::create(session).await.unwrap();
         let x = transaction.execute_data_query(ExecuteDataQueryRequest{
             query: Some(table::Query{query: Some(Query::YqlText(query.into()))}),
             ..Default::default()
@@ -90,10 +90,10 @@ async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     Ok(())
 }
 async fn create_table(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
-    let str_type = ydb_unofficial::generated::ydb::Type {r#type: Some(ydb_unofficial::generated::ydb::r#type::Type::TypeId(PrimitiveTypeId::Utf8 as i32))};
-    let str_nullable_type = ydb_unofficial::generated::ydb::Type {r#type: Some(ydb_unofficial::generated::ydb::r#type::Type::OptionalType(
-        Box::new(ydb_unofficial::generated::ydb::OptionalType {item: Some(Box::new(
-            ydb_unofficial::generated::ydb::Type {r#type: Some(ydb_unofficial::generated::ydb::r#type::Type::TypeId(PrimitiveTypeId::Utf8 as i32))}
+    let str_type = crate::generated::ydb::Type {r#type: Some(crate::generated::ydb::r#type::Type::TypeId(PrimitiveTypeId::Utf8 as i32))};
+    let str_nullable_type = crate::generated::ydb::Type {r#type: Some(crate::generated::ydb::r#type::Type::OptionalType(
+        Box::new(crate::generated::ydb::OptionalType {item: Some(Box::new(
+            crate::generated::ydb::Type {r#type: Some(crate::generated::ydb::r#type::Type::TypeId(PrimitiveTypeId::Utf8 as i32))}
         ))})
     ))};
     let req = CreateTableRequest{ 
@@ -119,23 +119,4 @@ fn init_logger() {
     builder.set_time_level(LevelFilter::Error);
     TermLogger::init(LevelFilter::Info, builder.build(), TerminalMode::Mixed, ColorChoice::Auto).unwrap();
 }
-
-
-trait Foo {type Inner;}
-trait Bar {type Inner;}
-impl Foo for i32 {type Inner = i32;}
-impl Bar for i32 {type Inner = i32;}
-struct Baz<T>(T);
-impl<T> Baz<T> where T: Foo, T::Inner: Bar,
-<T::Inner as Bar>::Inner: Sized
-{
-    pub fn new(obj: T) -> Self {Self(obj)}
-    pub fn foo(&self) -> String {"foobazz".to_owned()}
-}
-
-fn test() {
-    let baz = Baz::new(1);
-    let _s = baz.foo();
-}
-
 

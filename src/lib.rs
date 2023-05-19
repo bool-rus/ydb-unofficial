@@ -6,3 +6,6 @@ mod error;
 
 pub use payload::*;
 pub use error::*;
+
+#[cfg(test)]
+mod test;
