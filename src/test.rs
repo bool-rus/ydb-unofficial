@@ -24,7 +24,7 @@ pub async fn test() {
     let uri: Uri = url.try_into().unwrap();
     let ep = crate::client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
-    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap()).build().unwrap();
+    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), crate::pool::to_endpoint_info(uri).unwrap()).build().unwrap();
     let f1 = create_table2(&pool, db_name);
     let f2 = create_table3(&pool, db_name);
     let res = tokio::try_join!(f1, f2).unwrap();
@@ -73,20 +73,20 @@ async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
-        yql_text: "create table my_table2(id uint64 not null, value utf8 not null, primary key(id))".to_owned(),
+        yql_text: "create table my_table2(id uint64 not null, value utf8, primary key(id))".to_owned(),
         ..Default::default()
     }).await?;
-    log::error!("response: {response:?}");
+    log::info!("response: {response:?}");
     Ok(())
 }
 async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
     let mut conn = pool.get().await?;
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
-        yql_text: "create table my_table3(id xuint64 not null, value utf8, primary key(id))".to_owned(),
+        yql_text: "create table my_table3(id uint64 not null, value utf8, primary key(id))".to_owned(),
         ..Default::default()
     }).await?;
-    log::error!("response: {response:?}");
+    log::info!("response: {response:?}");
     Ok(())
 }
 async fn create_table(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {

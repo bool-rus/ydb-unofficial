@@ -3,12 +3,15 @@ name = "ydb-unofficial"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+doctest = false 
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#ydb-grpc = "0.0.13"
 tonic = { versoin = "0.9", features = ["tls-roots"] }
 tokio = { version = "1.27.0", features = ["full"] }
+ydb-grpc-bindings = "0.0.1"
 prost = "0.11.2"
 ctor = "0.2.0"
 deadpool = "0.9.5"
@@ -21,4 +24,3 @@ thiserror = "1.0.40"
 
 [build-dependencies]
 tonic-build = "0.9"
-walkdir = "*"

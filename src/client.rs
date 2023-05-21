@@ -7,9 +7,9 @@ use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
 use crate::payload::YdbResponseWithResult;
-use crate::generated::ydb::discovery::v1::DiscoveryServiceClient;
+use crate::generated::ydb::discovery::v1::discovery_service_client::DiscoveryServiceClient;
 use crate::generated::ydb::table::transaction_control::TxSelector;
-use crate::generated::ydb::table::{TransactionSettings, OnlineModeSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
+use crate::generated::ydb::table::{TransactionSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
 use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;

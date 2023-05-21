@@ -1,9 +1,8 @@
 
-use crate::generated::ydb::{table, discovery, status_ids};
+use crate::generated::ydb::{table, discovery};
 use table::*;
 use discovery::*;
 use thiserror::Error;
-use prost::Message;
 
 #[derive(Error, Debug)]
 pub enum ExtractResultError {

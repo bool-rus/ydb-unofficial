@@ -1,4 +1,5 @@
-pub mod generated;
+//pub mod generated;
+use ydb_grpc_bindings::generated;
 pub mod client;
 pub mod pool;
 mod payload;

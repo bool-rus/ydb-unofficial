@@ -15,7 +15,7 @@ type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
 
 
 fn make_endpoint(info: &EndpointInfo) -> Endpoint {
-    let uri: tonic::transport::Uri = format!("{}://{}:{}", info.scheme(), info.address, info.port).try_into().unwrap();
+    let uri: tonic::transport::Uri = format!("{}://{}:{}", info.get_scheme(), info.address, info.port).try_into().unwrap();
     let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
     if info.ssl {
         e = e.tls_config(Default::default()).unwrap()
@@ -23,8 +23,12 @@ fn make_endpoint(info: &EndpointInfo) -> Endpoint {
     e
 }
 
-impl EndpointInfo {
-    pub fn scheme(&self) -> &'static str {
+pub trait GetScheme {
+    fn get_scheme(&self) -> &'static str;
+}
+
+impl GetScheme for EndpointInfo {
+    fn get_scheme(&self) -> &'static str {
         if self.ssl { "grpcs" } else { "grpc" }
     }
 }
@@ -149,19 +153,14 @@ async fn update_endpoints<C: Credentials + Send + Sync>(pool: &Pool<ConnectionMa
     *pool.manager().endpoints.write().unwrap() = endpoints;
     Ok(())
 }
-
-impl TryFrom<Uri> for EndpointInfo {
-    type Error = String;
-
-    fn try_from(value: Uri) -> Result<Self, Self::Error> {
-        let mut e = EndpointInfo::default();
-        e.ssl = match value.scheme_str() {
-            Some("grpc") => false,
-            Some("grpcs") => true,
-            _ => return Err("Unknown protocol".to_owned()),
-        };
-        e.address = value.host().ok_or("no host")?.to_owned();
-        e.port = value.port_u16().ok_or("no port")? as u32;
-        Ok(e)
-    }
+pub fn to_endpoint_info(value: Uri) -> Result<EndpointInfo, String> {
+    let mut e = EndpointInfo::default();
+    e.ssl = match value.scheme_str() {
+        Some("grpc") => false,
+        Some("grpcs") => true,
+        _ => return Err("Unknown protocol".to_owned()),
+    };
+    e.address = value.host().ok_or("no host")?.to_owned();
+    e.port = value.port_u16().ok_or("no port")? as u32;
+    Ok(e)
 }
