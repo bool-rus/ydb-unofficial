@@ -11,11 +11,53 @@ use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
 use crate::client::{Credentials, YdbService, AsciiValue};
 
 
-type YdbEndpoints = std::sync::RwLock<Vec<EndpointInfo>>;
+type YdbEndpoints = std::sync::RwLock<Vec<YdbEndpoint>>;
+
+#[derive(Debug, Clone)]
+pub struct YdbEndpoint {
+    pub ssl: bool,
+    pub host: String,
+    pub port: u16,
+    pub load_factor: f32,
+}
+
+impl YdbEndpoint {
+    pub fn scheme(&self) -> &'static str {
+        if self.ssl { "grpcs" } else { "grpc" }
+    }
+}
+
+impl TryFrom<Uri> for YdbEndpoint {
+    type Error = String;
+
+    fn try_from(value: Uri) -> Result<Self, Self::Error> {
+            
+        let ssl = match value.scheme_str() {
+            Some("grpc") => false,
+            Some("grpcs") => true,
+            _ => return Err("Unknown protocol".to_owned()),
+        };
+        let host = value.host().ok_or("no host")?.to_owned();
+        let port = value.port_u16().ok_or("no port")?;
+        let load_factor = 0.0;
+        Ok(Self {ssl, host, port, load_factor})
+    }
+}
+
+impl From<EndpointInfo> for YdbEndpoint {
+    fn from(value: EndpointInfo) -> Self {
+        Self {
+            ssl: value.ssl,
+            host: value.address,
+            port: value.port as u16,
+            load_factor: value.load_factor,
+        }
+    }
+}
 
 
-fn make_endpoint(info: &EndpointInfo) -> Endpoint {
-    let uri: tonic::transport::Uri = format!("{}://{}:{}", info.get_scheme(), info.address, info.port).try_into().unwrap();
+fn make_endpoint(info: &YdbEndpoint) -> Endpoint {
+    let uri: tonic::transport::Uri = format!("{}://{}:{}", info.scheme(), info.host, info.port).try_into().unwrap();
     let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
     if info.ssl {
         e = e.tls_config(Default::default()).unwrap()
@@ -102,7 +144,7 @@ macro_rules! delegate {
 }
 
 impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
-    pub fn new(creds: C, db_name: AsciiValue, endpoint: EndpointInfo) -> Self {
+    pub fn new(creds: C, db_name: AsciiValue, endpoint: YdbEndpoint) -> Self {
         let endpoints =  std::sync::RwLock::new(vec![endpoint]);
         let inner = Pool::builder(ConnectionManager {creds, db_name, endpoints});
         let update_interval = Duration::from_secs(1);
@@ -148,7 +190,7 @@ async fn update_endpoints<C: Credentials + Send + Sync>(pool: &Pool<ConnectionMa
     let mut service = pool.get().await?;
     let mut discovery = service.discovery();
     let response = discovery.list_endpoints(ListEndpointsRequest{database, ..Default::default()}).await?; 
-    let endpoints = response.into_inner().result()?.endpoints;
+    let endpoints: Vec<_> = response.into_inner().result()?.endpoints.into_iter().map(From::from).collect();
     log::debug!("Pool endpoints updated ({} endpoints)", endpoints.len());
     *pool.manager().endpoints.write().unwrap() = endpoints;
     Ok(())

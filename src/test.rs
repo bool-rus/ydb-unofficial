@@ -24,7 +24,7 @@ pub async fn test() {
     let uri: Uri = url.try_into().unwrap();
     let ep = crate::client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
-    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), crate::pool::to_endpoint_info(uri).unwrap()).build().unwrap();
+    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap()).build().unwrap();
     let f1 = create_table2(&pool, db_name);
     let f2 = create_table3(&pool, db_name);
     let res = tokio::try_join!(f1, f2).unwrap();
