@@ -75,17 +75,6 @@ impl GetScheme for EndpointInfo {
     }
 }
 
-
-/* 
-pub fn create_pool<C: Credentials>(creds: C) -> tower::balance::pool::Pool<YdbPool, C, tonic::codegen::http::Request<tonic::body::BoxBody>> {
-    let mut pool = tower::balance::pool::Pool::new(YdbPool{endpoints: vec![]}, creds.clone());
-    let mut client = DiscoveryServiceClient::new(&mut pool);
-    pool
-}
-
-
-*/
-
 pub struct ConnectionManager<C> {
     creds: C,
     db_name: AsciiValue,
@@ -94,17 +83,23 @@ pub struct ConnectionManager<C> {
 
 impl<C: Credentials> ConnectionManager<C> {
     pub fn next_endpoint(&self) -> Endpoint {
+        let endpoints = self.endpoints.read().unwrap();
+        if endpoints.len() == 1 {
+            endpoints.first().unwrap();
+        } else if endpoints.is_empty() {
+            panic!("List of endpoints is empty");
+        }
         let mut rng = rand::thread_rng();
-        let rnd: usize = rng.gen();
         use rand::Rng;
-        let endpoints = self.endpoints.read().unwrap().clone();
-
-        let size = endpoints.iter().fold(0usize, |_s, e|(e.load_factor.abs() * 10.0) as usize + 1);
-        let e = endpoints.iter().map(|e|{
-            let count = (e.load_factor.abs() * 10.0) as usize + 1;
-            [e].into_iter().cycle().take(count)
-        }).flatten().cycle().nth(rnd % size).unwrap();
-        make_endpoint(e)
+        let e1 = rng.gen::<usize>() % endpoints.len();
+        let mut e2 = e1;
+        while e2 == e1 {
+            e2 = rng.gen::<usize>() % endpoints.len();
+        }
+        let e1 = &endpoints[e1];
+        let e2 = &endpoints[e2];
+        let endpoint = if e1.load_factor < e2.load_factor {e1} else { e2 };
+        make_endpoint(&endpoint)
     }
 }
 
@@ -123,7 +118,6 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
     }
 
     async fn recycle(&self, obj: &mut Self::Type) ->  deadpool::managed::RecycleResult<Self::Error> {
-        //TODO: еще здесь нужно проверить, что сессия не протухла
         obj.ready().await?;
         Ok(())
     }
