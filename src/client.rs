@@ -73,8 +73,8 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 /// 
 /// # Examples
 /// ``` rust
-/// #[tokio::main]
-/// async fn main() {
+/// # #[tokio::main]
+/// # async fn main() {
 ///     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
 ///     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
 ///     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
@@ -102,7 +102,7 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 ///     // now to use table operations
 ///     use ydb_unofficial::generated::ydb::table;
 ///     
-/// }
+/// # }
 /// ```
 pub struct YdbService<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
@@ -126,6 +126,19 @@ impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>
     }
 }
 
+impl YdbService<String> {
+    pub fn from_env() -> Self {
+        use std::env::var;
+        let url = var("YDB_URL").expect("YDB_URL not set");
+        let db_name = var("DB_NAME").expect("DB_NAME not set");
+        let creds = var("DB_TOKEN").expect("DB_TOKEN not set");
+    
+        let endpoint = create_endpoint(url.try_into().unwrap());
+        let channel = endpoint.connect_lazy();
+        YdbService::new(channel, db_name.as_str().try_into().unwrap(), creds)
+    }
+}
+
 impl<C: Credentials> YdbService<C> {
     /// YdbService constructor
     /// 
@@ -144,6 +157,27 @@ impl<C: Credentials> YdbService<C> {
             .service(channel);
         YdbService{inner, session_id: None}
     }
+    /// Creates discovery service client
+    /// 
+    /// # Examples
+    /// ```rust
+    /// # #[tokio::main] 
+    /// # async fn main() {
+    ///     let mut service = ydb_unofficial::YdbService::from_env();
+    ///     let db_name = std::env::var("DB_NAME").unwrap();
+    ///     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
+    ///     let endpoints_response = service.discovery().list_endpoints(
+    ///         ListEndpointsRequest{
+    ///             database: db_name.into(), 
+    ///             ..Default::default()
+    ///         }
+    ///     ).await.unwrap();
+    ///     // how you can parse response to invoke result with YdbResponseWithResult trait
+    ///     use ydb_unofficial::YdbResponseWithResult;
+    ///     let endpoints_result = endpoints_response.get_ref().result().unwrap();
+    ///     assert!(endpoints_result.endpoints.len() > 0);
+    /// # }
+    /// ```
     pub fn discovery(&mut self) -> DiscoveryServiceClient<&mut Self> {
         DiscoveryServiceClient::new(self)
     }
@@ -234,13 +268,14 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
     }
 }
 
-
+/// [`TableServiceClient`] with active session and transaction
 pub struct YdbTransaction<'a, C: Credentials> {
     tx_control: Option<TransactionControl>,
     client: TableClientWithSession<'a, C>,
 }
 
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
+    /// Method that just creates ReadWrite transaction 
     pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, crate::error::YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
         let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
@@ -274,6 +309,8 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         let result = self.rollback_inner().await;
         (self.client, result)
     }
+    /// you can execute multiple query requests in transaction
+    /// transaction data will inject for each request
     pub async fn execute_data_query(&mut self, mut req: ExecuteDataQueryRequest) -> Result<tonic::Response<ExecuteDataQueryResponse>,YdbError> {
         req.tx_control = self.tx_control.clone();
         self.client.execute_data_query(req).await
