@@ -31,7 +31,7 @@ impl TryFrom<Uri> for YdbEndpoint {
     type Error = String;
 
     fn try_from(value: Uri) -> Result<Self, Self::Error> {
-            
+        //TODO: убрать дублирование
         let ssl = match value.scheme_str() {
             Some("grpc") => false,
             Some("grpcs") => true,
@@ -85,7 +85,7 @@ impl<C: Credentials> ConnectionManager<C> {
     pub fn next_endpoint(&self) -> Endpoint {
         let endpoints = self.endpoints.read().unwrap();
         if endpoints.len() == 1 {
-            endpoints.first().unwrap();
+            return make_endpoint(endpoints.first().unwrap());
         } else if endpoints.is_empty() {
             panic!("List of endpoints is empty");
         }

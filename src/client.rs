@@ -13,7 +13,22 @@ use crate::generated::ydb::table::{TransactionSettings, ExecuteDataQueryRequest,
 use crate::generated::ydb::table::transaction_settings::TxMode;
 use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
 pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
+use tower::Service;
 
+/// Creates endpoint from uri
+/// If protocol is `grpcs`, then creates [`tonic::transport::ClientTlsConfig`] and applies to [`Endpoint`]
+///
+/// # Arguments
+///
+/// * `uri` - An [`Uri`] of endpoint
+///
+/// # Examples
+///
+/// ```
+/// use ydb_unofficial::client;
+/// let url = "grpcs://ydb.serverless.yandexcloud.net:2135";
+/// let enpoint = client::create_endpoint(url.try_into().unwrap());
+/// ```
 pub fn create_endpoint(uri: Uri) -> Endpoint {
     let mut res = Endpoint::from(uri);
     if matches!(res.uri().scheme_str(), Some("grpcs")) {
@@ -23,6 +38,7 @@ pub fn create_endpoint(uri: Uri) -> Endpoint {
 }
 
 
+/// Trait to creates tokens for ydb auth
 pub trait Credentials: Clone + Send + 'static {
     fn token(&self) -> AsciiValue;
 }
@@ -33,6 +49,7 @@ impl Credentials for String {
     }
 }
 
+#[allow(non_upper_case_globals)]
 #[ctor::ctor]
 static BUILD_INFO: AsciiValue = concat!("ydb-unofficial/", env!("CARGO_PKG_VERSION")).try_into().unwrap();
 
@@ -52,14 +69,48 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
     }
 }
 
+/// Common Ydb client, that wraps GRPC(s) transport with needed headers
+/// 
+/// # Examples
+/// ``` rust
+/// #[tokio::main]
+/// async fn main() {
+///     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
+///     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
+///     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+/// 
+///     // how you can create service
+///     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
+///     let channel = endpoint.connect().await.unwrap();
+///     use ydb_unofficial::YdbService;
+///     let mut service = YdbService::new(channel, db_name.as_str().try_into().unwrap(), creds);
+/// 
+///     // how to use it, e.g. use discovery service:
+///     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
+///     let endpoints_response = service.discovery().list_endpoints(
+///         ListEndpointsRequest{
+///             database: db_name.into(), 
+///             ..Default::default()
+///         }
+///     ).await.unwrap();
+///     
+///     // how you can parse response to invoke result with YdbResponseWithResult trait
+///     use ydb_unofficial::YdbResponseWithResult;
+///     let endpoints_result = endpoints_response.get_ref().result().unwrap();
+///     assert!(endpoints_result.endpoints.len() > 0);
+/// 
+///     // now to use table operations
+///     use ydb_unofficial::generated::ydb::table;
+///     
+/// }
+/// ```
 pub struct YdbService<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Option<String>,
 }
 
-use tower::Service as Service1;
 
-impl<C: Credentials> Service1<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbService<C> {
+impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbService<C> {
     type Response = tonic::codegen::http::Response<tonic::body::BoxBody>;
 
     type Error = tonic::transport::Error;
@@ -76,6 +127,15 @@ impl<C: Credentials> Service1<tonic::codegen::http::Request<tonic::body::BoxBody
 }
 
 impl<C: Credentials> YdbService<C> {
+    /// YdbService constructor
+    /// 
+    /// # Arguments
+    /// * `channel` - transport channel to database (can be make from [`Endpoint`])
+    /// * `db_name` - database name (you can get it from yandex cloud for example) in [`AsciiValue`] format
+    /// * `creds` - some object, that implements [`Credentials`] (e.g. [`String`])
+    /// 
+    /// # Examples
+    /// See [`YdbService`]
     pub fn new(channel: Channel, db_name: AsciiValue, creds: C) -> Self {
         let interceptor = DBInterceptor {db_name, creds};
         let inner = tower::ServiceBuilder::new()
@@ -87,6 +147,7 @@ impl<C: Credentials> YdbService<C> {
     pub fn discovery(&mut self) -> DiscoveryServiceClient<&mut Self> {
         DiscoveryServiceClient::new(self)
     }
+    /// Creates session and returns [`TableClientWithSession`]
     pub async fn table(&mut self) -> Result<TableClientWithSession<C>, YdbError> {
         let session_id = if let Some(session_id) = self.session_id.clone() {
             session_id
@@ -120,6 +181,9 @@ impl<C: Credentials> Drop for YdbService<C> {
     }
 }
 
+/// [`TableServiceClient`] with active session.
+/// for each method (that requires session_id) table client injects session_id field
+/// Session may be invalid. In this case you need to recreate that client with [`YdbService::table`]
 pub struct TableClientWithSession<'a, C: Credentials> {
     session_id: String,
     client: TableServiceClient<&'a mut YdbService<C>>,
@@ -130,11 +194,16 @@ macro_rules! delegate {
         pub async fn $fun(&mut self, mut req: $arg) -> Result<tonic::Response<$ret>, YdbError> {
             req.$field = self.$field.clone();
             let result = self.client.$fun(req).await?;
-            let status = result.get_ref().operation.as_ref().ok_or(YdbError::EmptyResponse).unwrap().status();
+            let status = result.get_ref().operation.as_ref().ok_or(YdbError::EmptyResponse)?.status();
             use crate::generated::ydb::status_ids::StatusCode;
             use crate::error::ErrWithOperation;
             match status {
                 StatusCode::Success => Ok(result),
+                StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
+                    //TODO: обнулить session_id в YdbService, если сессия протухла. 
+                    //ах, если было возможно взять inner... self.client.inner.session_id = None;
+                    Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap())))
+                }
                 _ => Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap()))),
             }
         }

@@ -3,6 +3,8 @@ use std::error::Error;
 use std::{env, time::Duration};
 
 use tokio::sync::futures;
+use tonic::codegen::CompressionEncoding;
+use crate::client::YdbService;
 use crate::generated::ydb::table::{ExecuteScanQueryRequest, ExecuteSchemeQueryRequest};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
 use crate::{YdbResponseWithResult, generated::ydb::r#type::PrimitiveTypeId};
@@ -20,15 +22,23 @@ pub async fn test() {
     let db_name = "/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f";
     //let url = "grpcs://localhost:2135";
     //let db_name = "/local";
-    let creds = env::var("TOKEN").unwrap();
+    let creds = env::var("DB_TOKEN").unwrap();
     let uri: Uri = url.try_into().unwrap();
     let ep = crate::client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
-    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap()).build().unwrap();
+    log::info!("channel connected");
+    let mut service = YdbService::new(channel, db_name.try_into().unwrap(), creds.clone());
+    let t = service.table().await.unwrap();
+    let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap())
+        //.wait_timeout(Some(Duration::from_secs(5)))
+        //.create_timeout(Some(Duration::from_secs(5)))
+        //.recycle_timeout(Some(Duration::from_secs(5)))
+        .build().unwrap();
     let f1 = create_table2(&pool, db_name);
     let f2 = create_table3(&pool, db_name);
     let res = tokio::try_join!(f1, f2).unwrap();
-    if false {
+    log::info!("tables created");
+    if true {
         let mut service = pool.get().await.unwrap();
 
         //client::Client::new(url, db_name, creds.to_owned()).await.unwrap();
@@ -36,7 +46,8 @@ pub async fn test() {
         let mut discovery = discovery.discovery();
         //let mut client = DiscoveryServiceClient::connect("test").await.unwrap();
         let response = discovery.list_endpoints(ListEndpointsRequest{database: db_name.into(), ..Default::default()}).await.unwrap();
-        let payload = response.into_inner().result().unwrap();
+        let payload = response.get_ref().result().unwrap();
+        let payload: ydb_grpc_bindings::generated::ydb::discovery::ListEndpointsResult = response.into_inner().result().unwrap();
         log::info!("payload: {payload:?}\n");
 
     //let mut table_client = TableServiceClient::connect("").await.unwrap();
