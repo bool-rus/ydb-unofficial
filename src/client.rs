@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use crate::YdbError;
 
 use table::*;
@@ -106,7 +108,7 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 /// ```
 pub struct YdbService<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
-    session_id: Option<String>,
+    session_id: Arc<RwLock<Option<String>>>,
 }
 
 
@@ -155,7 +157,7 @@ impl<C: Credentials> YdbService<C> {
             .layer(tonic::service::interceptor(interceptor))
             .layer_fn(|x|x)
             .service(channel);
-        YdbService{inner, session_id: None}
+        YdbService{inner, session_id: Arc::new(RwLock::new(None))}
     }
     /// Creates discovery service client
     /// 
@@ -183,24 +185,25 @@ impl<C: Credentials> YdbService<C> {
     }
     /// Creates session and returns [`TableClientWithSession`]
     pub async fn table(&mut self) -> Result<TableClientWithSession<C>, YdbError> {
-        let session_id = if let Some(session_id) = self.session_id.clone() {
+        let session_id = if let Some(session_id) = self.session_id.read().unwrap().clone() {
             session_id
         } else {
             let mut client = TableServiceClient::new(&mut self.inner);
             let response = client.create_session(CreateSessionRequest::default()).await?;
             let session_id = response.into_inner().result()?.session_id;
             log::debug!("Session created: {session_id}");
-            self.session_id = Some(session_id.clone());
+            *self.session_id.write().unwrap() = Some(session_id.clone());
             session_id
         };
+        let session_ref = self.session_id.clone();
         let client = TableServiceClient::new(self);
-        Ok(TableClientWithSession { session_id, client })
+        Ok(TableClientWithSession {session_ref, session_id, client })
     }
 }
 
 impl<C: Credentials> Drop for YdbService<C> {
     fn drop(&mut self) {
-        if let Some(session_id) = self.session_id.clone() {
+        if let Some(session_id) = self.session_id.read().unwrap().clone() {
             let mut client = TableServiceClient::new(self.inner.clone());
             tokio::spawn(async move {
                 let copy = session_id.clone();
@@ -219,6 +222,8 @@ impl<C: Credentials> Drop for YdbService<C> {
 /// for each method (that requires session_id) table client injects session_id field
 /// Session may be invalid. In this case you need to recreate that client with [`YdbService::table`]
 pub struct TableClientWithSession<'a, C: Credentials> {
+    //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbService не достать
+    session_ref: Arc<RwLock<Option<String>>>, 
     session_id: String,
     client: TableServiceClient<&'a mut YdbService<C>>,
 }
@@ -234,8 +239,7 @@ macro_rules! delegate {
             match status {
                 StatusCode::Success => Ok(result),
                 StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
-                    //TODO: обнулить session_id в YdbService, если сессия протухла. 
-                    //ах, если было возможно взять inner... self.client.inner.session_id = None;
+                    *self.session_ref.write().unwrap() = None;
                     Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap())))
                 }
                 _ => Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap()))),
