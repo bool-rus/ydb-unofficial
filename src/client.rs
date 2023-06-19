@@ -275,6 +275,7 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
 /// [`TableServiceClient`] with active session and transaction
 pub struct YdbTransaction<'a, C: Credentials> {
     tx_control: Option<TransactionControl>,
+    //TODO: переделать на &mut
     client: TableClientWithSession<'a, C>,
 }
 
@@ -300,6 +301,8 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         let result = response.into_inner().result()?; //что там может быть полезного?
         Ok(result)
     }
+    /// Commit transaction, drop transaction with commit
+    //TODO: какое-то упоротое возвращаемое значение
     pub async fn commit(mut self) -> (TableClientWithSession<'a, C>, Result<CommitTransactionResult, YdbError>) {
         let result = self.commit_inner().await;
         (self.client, result)
