@@ -4,7 +4,7 @@ use std::{env, time::Duration};
 
 use tokio::sync::futures;
 use tonic::codegen::CompressionEncoding;
-use crate::client::YdbService;
+use crate::client::YdbConnection;
 use crate::generated::ydb::table::{ExecuteScanQueryRequest, ExecuteSchemeQueryRequest};
 //use ydb_grpc::ydb_proto::{discovery::{v1::discovery_service_client::DiscoveryServiceClient, WhoAmIRequest, ListEndpointsRequest}, table::{v1::table_service_client::TableServiceClient, CreateSessionRequest}};
 use crate::{YdbResponseWithResult, generated::ydb::r#type::PrimitiveTypeId};
@@ -27,13 +27,16 @@ pub async fn test() {
     let ep = crate::client::create_endpoint(url.try_into().unwrap());
     let channel = ep.connect().await.unwrap();
     log::info!("channel connected");
-    let mut service = YdbService::new(channel, db_name.try_into().unwrap(), creds.clone());
+    let mut service = YdbConnection::new(channel, db_name.try_into().unwrap(), creds.clone());
+    log::info!("ydb connection created");
     let t = service.table().await.unwrap();
+    log::info!("table client created");
     let pool = YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), uri.try_into().unwrap())
         //.wait_timeout(Some(Duration::from_secs(5)))
         //.create_timeout(Some(Duration::from_secs(5)))
         //.recycle_timeout(Some(Duration::from_secs(5)))
         .build().unwrap();
+    log::info!("pool created");
     let f1 = create_table2(&pool, db_name);
     let f2 = create_table3(&pool, db_name);
     let res = tokio::try_join!(f1, f2).unwrap();
@@ -81,7 +84,9 @@ pub async fn test() {
     
 }
 async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
+    log::info!("create table 2 started");
     let mut conn = pool.get().await?;
+    log::info!("2: conn invoked");
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
         yql_text: "create table my_table2(id uint64 not null, value utf8, primary key(id))".to_owned(),
@@ -91,7 +96,9 @@ async fn create_table2(pool: &deadpool::managed::Pool<ConnectionManager<String>>
     Ok(())
 }
 async fn create_table3(pool: &deadpool::managed::Pool<ConnectionManager<String>>, db_name: &str) -> Result<(), Box<dyn Error>> {
+    log::info!("create table 3 started");
     let mut conn = pool.get().await?;
+    log::info!("3: conn invoked");
     let mut conn = conn.table().await?;
     let response = conn.execute_scheme_query(ExecuteSchemeQueryRequest {
         yql_text: "create table my_table3(id uint64 not null, value utf8, primary key(id))".to_owned(),

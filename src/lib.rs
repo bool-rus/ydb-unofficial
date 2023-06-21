@@ -7,7 +7,7 @@ mod error;
 
 pub use payload::*;
 pub use error::*;
-pub use client::YdbService;
+pub use client::YdbConnection;
 pub use client::YdbTransaction;
 
 #[cfg(test)]

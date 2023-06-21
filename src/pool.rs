@@ -8,7 +8,7 @@ use tower::ServiceExt;
 
 use crate::payload::YdbResponseWithResult;
 use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
-use crate::client::{Credentials, YdbService, AsciiValue};
+use crate::client::{Credentials, YdbConnection, AsciiValue};
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<YdbEndpoint>>;
@@ -105,7 +105,7 @@ impl<C: Credentials> ConnectionManager<C> {
 
 #[async_trait::async_trait]
 impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
-    type Type = YdbService<C>;
+    type Type = YdbConnection<C>;
 
     type Error = tonic::transport::Error;
 
@@ -114,7 +114,7 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
         let channel = endpoint.connect().await?;
         let db_name = self.db_name.clone();
         let creds = self.creds.clone();
-        Ok(YdbService::new(channel, db_name, creds))
+        Ok(YdbConnection::new(channel, db_name, creds))
     }
 
     async fn recycle(&self, obj: &mut Self::Type) ->  deadpool::managed::RecycleResult<Self::Error> {
@@ -123,6 +123,7 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
     }
 }
 
+///Builder for pool of [`YdbConnection`]
 pub struct YdbPoolBuilder<C: Credentials + Send + Sync> {
     inner: PoolBuilder<ConnectionManager<C>>,
     update_interval: Duration,

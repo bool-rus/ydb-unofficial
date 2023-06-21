@@ -12,7 +12,7 @@ pub enum ExtractResultError {
     Decode(#[from] prost::DecodeError),
 }
 
-
+/// The trait to invoke payload result from response
 pub trait YdbResponseWithResult {
     type Result;
     fn result(&self) -> Result<Self::Result,ExtractResultError>;

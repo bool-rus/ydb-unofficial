@@ -84,8 +84,8 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 ///     // how you can create service
 ///     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
 ///     let channel = endpoint.connect().await.unwrap();
-///     use ydb_unofficial::YdbService;
-///     let mut service = YdbService::new(channel, db_name.as_str().try_into().unwrap(), creds);
+///     use ydb_unofficial::YdbConnection;
+///     let mut service = YdbConnection::new(channel, db_name.as_str().try_into().unwrap(), creds);
 /// 
 ///     // how to use it, e.g. use discovery service:
 ///     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
@@ -106,13 +106,13 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 ///     
 /// # }
 /// ```
-pub struct YdbService<C: Credentials> {
+pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
 }
 
 
-impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbService<C> {
+impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>> for YdbConnection<C> {
     type Response = tonic::codegen::http::Response<tonic::body::BoxBody>;
 
     type Error = tonic::transport::Error;
@@ -128,7 +128,7 @@ impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>
     }
 }
 
-impl YdbService<String> {
+impl YdbConnection<String> {
     pub fn from_env() -> Self {
         use std::env::var;
         let url = var("YDB_URL").expect("YDB_URL not set");
@@ -137,12 +137,12 @@ impl YdbService<String> {
     
         let endpoint = create_endpoint(url.try_into().unwrap());
         let channel = endpoint.connect_lazy();
-        YdbService::new(channel, db_name.as_str().try_into().unwrap(), creds)
+        YdbConnection::new(channel, db_name.as_str().try_into().unwrap(), creds)
     }
 }
 
-impl<C: Credentials> YdbService<C> {
-    /// YdbService constructor
+impl<C: Credentials> YdbConnection<C> {
+    /// YdbConnection constructor
     /// 
     /// # Arguments
     /// * `channel` - transport channel to database (can be make from [`Endpoint`])
@@ -150,14 +150,14 @@ impl<C: Credentials> YdbService<C> {
     /// * `creds` - some object, that implements [`Credentials`] (e.g. [`String`])
     /// 
     /// # Examples
-    /// See [`YdbService`]
+    /// See [`YdbConnection`]
     pub fn new(channel: Channel, db_name: AsciiValue, creds: C) -> Self {
         let interceptor = DBInterceptor {db_name, creds};
         let inner = tower::ServiceBuilder::new()
             .layer(tonic::service::interceptor(interceptor))
             .layer_fn(|x|x)
             .service(channel);
-        YdbService{inner, session_id: Arc::new(RwLock::new(None))}
+        YdbConnection{inner, session_id: Arc::new(RwLock::new(None))}
     }
     /// Creates discovery service client
     /// 
@@ -165,10 +165,10 @@ impl<C: Credentials> YdbService<C> {
     /// ```rust
     /// # #[tokio::main] 
     /// # async fn main() {
-    ///     let mut service = ydb_unofficial::YdbService::from_env();
+    ///     let mut conn = ydb_unofficial::YdbConnection::from_env();
     ///     let db_name = std::env::var("DB_NAME").unwrap();
     ///     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
-    ///     let endpoints_response = service.discovery().list_endpoints(
+    ///     let endpoints_response = conn.discovery().list_endpoints(
     ///         ListEndpointsRequest{
     ///             database: db_name.into(), 
     ///             ..Default::default()
@@ -183,9 +183,21 @@ impl<C: Credentials> YdbService<C> {
     pub fn discovery(&mut self) -> DiscoveryServiceClient<&mut Self> {
         DiscoveryServiceClient::new(self)
     }
+
     /// Creates session and returns [`TableClientWithSession`]
+    /// # Examples
+    /// ```rust
+    /// # #[tokio::main]
+    /// # async fn main() {
+    ///     let mut conn = ydb_unofficial::YdbConnection::from_env();
+    ///     let mut table_client = conn.table().await.unwrap();
+    ///     use ydb_unofficial::generated::ydb::table::*;
+    ///     let keep_alive_response = table_client.keep_alive(KeepAliveRequest::default()).await.unwrap();
+    ///     //..some another code
+    /// # }
+    /// ```
     pub async fn table(&mut self) -> Result<TableClientWithSession<C>, YdbError> {
-        let session_id = if let Some(session_id) = self.session_id.read().unwrap().clone() {
+        let session_id = if let Some(session_id) = self.session_id() {
             session_id
         } else {
             let mut client = TableServiceClient::new(&mut self.inner);
@@ -199,11 +211,14 @@ impl<C: Credentials> YdbService<C> {
         let client = TableServiceClient::new(self);
         Ok(TableClientWithSession {session_ref, session_id, client })
     }
+    fn session_id(&self) -> Option<String> {
+        self.session_id.read().unwrap().clone()
+    }
 }
 
-impl<C: Credentials> Drop for YdbService<C> {
+impl<C: Credentials> Drop for YdbConnection<C> {
     fn drop(&mut self) {
-        if let Some(session_id) = self.session_id.read().unwrap().clone() {
+        if let Some(session_id) = self.session_id() {
             let mut client = TableServiceClient::new(self.inner.clone());
             tokio::spawn(async move {
                 let copy = session_id.clone();
@@ -214,18 +229,18 @@ impl<C: Credentials> Drop for YdbService<C> {
                 }
             });
         }
-        log::debug!("YdbService closed");
+        log::debug!("YdbConnection closed");
     }
 }
 
 /// [`TableServiceClient`] with active session.
 /// for each method (that requires session_id) table client injects session_id field
-/// Session may be invalid. In this case you need to recreate that client with [`YdbService::table`]
+/// Session may be invalid. In this case you need to recreate that client with [`YdbConnection::table`]
 pub struct TableClientWithSession<'a, C: Credentials> {
-    //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbService не достать
+    //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbConnection не достать
     session_ref: Arc<RwLock<Option<String>>>, 
     session_id: String,
-    client: TableServiceClient<&'a mut YdbService<C>>,
+    client: TableServiceClient<&'a mut YdbConnection<C>>,
 }
 
 macro_rules! delegate {
