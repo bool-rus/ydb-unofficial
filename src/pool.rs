@@ -12,6 +12,7 @@ use crate::client::{Credentials, YdbConnection, AsciiValue};
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<YdbEndpoint>>;
+pub type YdbPool<C> = Pool<ConnectionManager<C>>;
 
 #[derive(Debug, Clone)]
 pub struct YdbEndpoint {
@@ -93,7 +94,7 @@ impl<C: Credentials> ConnectionManager<C> {
         use rand::Rng;
         let e1 = rng.gen::<usize>() % endpoints.len();
         let mut e2 = e1;
-        while e2 == e1 {
+        while e2 == e1 { //TODO: кажется, это что-то неоптимальное
             e2 = rng.gen::<usize>() % endpoints.len();
         }
         let e1 = &endpoints[e1];
@@ -123,7 +124,23 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
     }
 }
 
-///Builder for pool of [`YdbConnection`]
+/// Builder for pool of [`YdbConnection`]
+/// # Examples
+/// ```rust
+/// # #[tokio::main]
+/// # async fn main() {
+/// let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
+/// let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+/// let ep = ydb_unofficial::YdbEndpoint {ssl: true, host: "ydb.serverless.yandexcloud.net".to_owned(), port: 2135, load_factor: 0.0};
+/// let pool = ydb_unofficial::pool::YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), ep).build().unwrap();
+/// let mut conn = pool.get().await.unwrap();
+/// let mut table_client = conn.table();
+/// //do something...
+/// let mut conn2 = pool.get().await.unwrap();
+/// //do another staff
+/// pool.close();
+/// # }
+/// ```
 pub struct YdbPoolBuilder<C: Credentials + Send + Sync> {
     inner: PoolBuilder<ConnectionManager<C>>,
     update_interval: Duration,
@@ -137,12 +154,12 @@ macro_rules! delegate {
         }
     )+ };
 }
-
+/// Wrapper on [`PoolBuilder`] for YdbConnection.
 impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
     pub fn new(creds: C, db_name: AsciiValue, endpoint: YdbEndpoint) -> Self {
         let endpoints =  std::sync::RwLock::new(vec![endpoint]);
         let inner = Pool::builder(ConnectionManager {creds, db_name, endpoints});
-        let update_interval = Duration::from_secs(1);
+        let update_interval = Duration::from_secs(77);
         Self {inner, update_interval}
     }
     pub fn update_interval(mut self, interval: Duration) -> Self {

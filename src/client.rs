@@ -294,6 +294,24 @@ pub struct YdbTransaction<'a, C: Credentials> {
     client: TableClientWithSession<'a, C>,
 }
 
+/// Transactions implementation for ydb.
+/// # Examples
+/// ```rust
+/// # #[tokio::main]
+/// # async fn main() {
+///   let mut conn = ydb_unofficial::YdbConnection::from_env();
+///   let mut transaction = ydb_unofficial::YdbTransaction::create(conn.table().await.unwrap()).await.unwrap(); 
+///   use ydb_unofficial::generated::ydb::table::query::Query;
+///   let req = ydb_unofficial::generated::ydb::table::ExecuteDataQueryRequest{
+///     query: Some(ydb_unofficial::generated::ydb::table::Query{
+///        query: Some(Query::YqlText("SELECT 1+1 as sum, 2*2 as mul".into()))
+///     }),
+///      ..Default::default()
+///   };
+///   let result = transaction.execute_data_query(req).await.unwrap();
+///   transaction.commit().await;
+/// # }
+/// ```
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
     /// Method that just creates ReadWrite transaction 
     pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, crate::error::YdbError> {

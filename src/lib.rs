@@ -9,6 +9,7 @@ pub use payload::*;
 pub use error::*;
 pub use client::YdbConnection;
 pub use client::YdbTransaction;
+pub use pool::YdbEndpoint;
 
 #[cfg(test)]
 mod test;
