@@ -71,8 +71,17 @@ pub async fn test() {
         }).await.unwrap();
 
         log::info!("\nx: {x:?}");
-        let payload = x.into_inner().result();
+        let payload = x.into_inner().result().unwrap();
         log::info!("\npayload: {payload:?}");
+        let rs = payload.result_sets.first().unwrap();
+        log::info!("rs: {rs:?}");
+        for r in &rs.rows {
+            log::info!("row: {r:?}");
+            for i in &r.items {
+                log::info!("item: {i:?}");
+            }
+        }
+        
 
 
         let (mut session, _) = transaction.commit().await;
