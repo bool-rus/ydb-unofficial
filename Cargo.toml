@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 keywords = ["database","db","ydb"]
-description = "Rust grpc bindings for YDB (unofficial)"
+description = "Unofficial Ydb client library written on rust"
 repository = "https://hub.mos.ru/bool.rus/ydb-unofficial.git"
 
 [lib]
