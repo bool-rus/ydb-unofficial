@@ -2,11 +2,14 @@
 name = "ydb-unofficial"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+keywords = ["database","db","ydb"]
+description = "Rust grpc bindings for YDB (unofficial)"
+repository = "https://hub.mos.ru/bool.rus/ydb-unofficial.git"
 
 [lib]
-doctest = false 
+doctest = true 
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 tonic = { versoin = "0.9", features = ["tls-roots"] }
