@@ -1,8 +1,10 @@
+//! Some error types that may appear when interacting with Ydb
 use std::fmt::Display;
 
 use thiserror::Error;
 
-use crate::{ExtractResultError, generated::ydb::operations::Operation};
+use crate::generated::ydb::operations::Operation;
+pub use crate::payload::ExtractResultError;
 
 #[derive(Error, Debug)]
 #[error(transparent)]

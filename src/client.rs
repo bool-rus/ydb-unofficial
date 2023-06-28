@@ -1,6 +1,42 @@
+//! Common Ydb client, that wraps GRPC(s) transport with needed headers
+//! 
+//! # Examples
+//! ``` rust
+//! # #[tokio::main]
+//! # async fn main() {
+//!     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
+//!     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
+//!     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+//! 
+//!     // how you can create service
+//!     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
+//!     let channel = endpoint.connect().await.unwrap();
+//!     use ydb_unofficial::YdbConnection;
+//!     let mut service = YdbConnection::new(channel, db_name.as_str().try_into().unwrap(), creds);
+//! 
+//!     // how to use it, e.g. use discovery service:
+//!     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
+//!     let endpoints_response = service.discovery().list_endpoints(
+//!         ListEndpointsRequest{
+//!             database: db_name.into(), 
+//!             ..Default::default()
+//!         }
+//!     ).await.unwrap();
+//!     
+//!     // how you can parse response to invoke result with YdbResponseWithResult trait
+//!     use ydb_unofficial::YdbResponseWithResult;
+//!     let endpoints_result = endpoints_response.get_ref().result().unwrap();
+//!     assert!(endpoints_result.endpoints.len() > 0);
+//! 
+//!     // now to use table operations
+//!     use ydb_unofficial::generated::ydb::table;
+//!     
+//! # }
+//! ```
+use super::*;
 use std::sync::{Arc, RwLock};
-
-use crate::YdbError;
+use error::YdbError;
+use auth::Credentials;
 
 use table::*;
 
@@ -8,13 +44,12 @@ use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Endpoint, Channel, Uri};
 
-use crate::payload::YdbResponseWithResult;
-use crate::generated::ydb::discovery::v1::discovery_service_client::DiscoveryServiceClient;
-use crate::generated::ydb::table::transaction_control::TxSelector;
-use crate::generated::ydb::table::{TransactionSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
-use crate::generated::ydb::table::transaction_settings::TxMode;
-use crate::generated::ydb::table::v1::table_service_client::TableServiceClient;
-pub type AsciiValue = tonic::metadata::MetadataValue<tonic::metadata::Ascii>;
+use payload::YdbResponseWithResult;
+use generated::ydb::discovery::v1::discovery_service_client::DiscoveryServiceClient;
+use generated::ydb::table::transaction_control::TxSelector;
+use generated::ydb::table::{TransactionSettings, ExecuteDataQueryRequest, TransactionControl, self, CreateSessionRequest, DeleteSessionRequest};
+use generated::ydb::table::transaction_settings::TxMode;
+use generated::ydb::table::v1::table_service_client::TableServiceClient;
 use tower::Service;
 
 /// Creates endpoint from uri
@@ -40,23 +75,12 @@ pub fn create_endpoint(uri: Uri) -> Endpoint {
 }
 
 
-/// Trait to creates tokens for ydb auth
-pub trait Credentials: Clone + Send + 'static {
-    fn token(&self) -> AsciiValue;
-}
-
-impl Credentials for String {
-    fn token(&self) -> AsciiValue {
-        self.clone().try_into().unwrap()
-    }
-}
-
 #[allow(non_upper_case_globals)]
 #[ctor::ctor]
 static BUILD_INFO: AsciiValue = concat!("ydb-unofficial/", env!("CARGO_PKG_VERSION")).try_into().unwrap();
 
 #[derive(Clone, Debug)]
-pub struct DBInterceptor<C: Clone> {
+struct DBInterceptor<C: Clone> {
     db_name: AsciiValue,
     creds: C
 }
@@ -70,42 +94,7 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         Ok(request)    
     }
 }
-
-/// Common Ydb client, that wraps GRPC(s) transport with needed headers
-/// 
-/// # Examples
-/// ``` rust
-/// # #[tokio::main]
-/// # async fn main() {
-///     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
-///     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
-///     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
-/// 
-///     // how you can create service
-///     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
-///     let channel = endpoint.connect().await.unwrap();
-///     use ydb_unofficial::YdbConnection;
-///     let mut service = YdbConnection::new(channel, db_name.as_str().try_into().unwrap(), creds);
-/// 
-///     // how to use it, e.g. use discovery service:
-///     use ydb_unofficial::generated::ydb::discovery::ListEndpointsRequest;
-///     let endpoints_response = service.discovery().list_endpoints(
-///         ListEndpointsRequest{
-///             database: db_name.into(), 
-///             ..Default::default()
-///         }
-///     ).await.unwrap();
-///     
-///     // how you can parse response to invoke result with YdbResponseWithResult trait
-///     use ydb_unofficial::YdbResponseWithResult;
-///     let endpoints_result = endpoints_response.get_ref().result().unwrap();
-///     assert!(endpoints_result.endpoints.len() > 0);
-/// 
-///     // now to use table operations
-///     use ydb_unofficial::generated::ydb::table;
-///     
-/// # }
-/// ```
+/// Ydb connection implementation, that pass database name and auth data to grpc channel
 pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -129,6 +118,11 @@ impl<C: Credentials> Service<tonic::codegen::http::Request<tonic::body::BoxBody>
 }
 
 impl YdbConnection<String> {
+    /// Creates connection from environment.
+    /// It uses following env variables
+    /// * YDB_URL - grpc-url to database host
+    /// * DB_NAME - name of database connect to
+    /// * DB_TOKEN - temporary token to access to database
     pub fn from_env() -> Self {
         use std::env::var;
         let url = var("YDB_URL").expect("YDB_URL not set");
@@ -150,7 +144,7 @@ impl<C: Credentials> YdbConnection<C> {
     /// * `creds` - some object, that implements [`Credentials`] (e.g. [`String`])
     /// 
     /// # Examples
-    /// See [`YdbConnection`]
+    /// See [`self`]
     pub fn new(channel: Channel, db_name: AsciiValue, creds: C) -> Self {
         let interceptor = DBInterceptor {db_name, creds};
         let inner = tower::ServiceBuilder::new()

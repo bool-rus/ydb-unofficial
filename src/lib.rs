@@ -1,12 +1,13 @@
 //pub mod generated;
-pub use ydb_grpc_bindings::generated;
 pub mod client;
 pub mod pool;
-mod payload;
-mod error;
+pub mod auth;
+pub mod error;
 
-pub use payload::*;
-pub use error::*;
+mod payload;
+mod reimport;
+
+pub use payload::YdbResponseWithResult;
 pub use client::YdbConnection;
 pub use client::YdbTransaction;
-pub use pool::YdbEndpoint;
+pub use reimport::*;

@@ -1,4 +1,22 @@
-
+//! Implementation of pool of [`YdbConnection`].
+//! Uses method `list_endpoints` of `DiscoveryServiceClient` to create pool on multiple endpoints
+//! # Examples
+//! ```rust
+//! # #[tokio::main]
+//! # async fn main() {
+//! let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
+//! let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+//! let ep = ydb_unofficial::pool::YdbEndpoint {ssl: true, host: "ydb.serverless.yandexcloud.net".to_owned(), port: 2135, load_factor: 0.0};
+//! let pool = ydb_unofficial::pool::YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), ep).build().unwrap();
+//! let mut conn = pool.get().await.unwrap();
+//! let mut table_client = conn.table();
+//! //do something...
+//! let mut conn2 = pool.get().await.unwrap();
+//! //do another staff
+//! pool.close();
+//! # }
+//! ```
+use super::*;
 use std::{vec, time::Duration};
 
 use deadpool::managed::{Manager, Pool, PoolBuilder, PoolConfig, Hook};
@@ -6,9 +24,9 @@ use deadpool::managed::{Manager, Pool, PoolBuilder, PoolConfig, Hook};
 use tonic::transport::{Endpoint, Uri};
 use tower::ServiceExt;
 
-use crate::payload::YdbResponseWithResult;
-use crate::generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
-use crate::client::{Credentials, YdbConnection, AsciiValue};
+use payload::YdbResponseWithResult;
+use generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
+use auth::Credentials;
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<YdbEndpoint>>;
@@ -125,22 +143,6 @@ impl <C: Credentials + Sync> Manager for ConnectionManager<C> {
 }
 
 /// Builder for pool of [`YdbConnection`]
-/// # Examples
-/// ```rust
-/// # #[tokio::main]
-/// # async fn main() {
-/// let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
-/// let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
-/// let ep = ydb_unofficial::YdbEndpoint {ssl: true, host: "ydb.serverless.yandexcloud.net".to_owned(), port: 2135, load_factor: 0.0};
-/// let pool = ydb_unofficial::pool::YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), ep).build().unwrap();
-/// let mut conn = pool.get().await.unwrap();
-/// let mut table_client = conn.table();
-/// //do something...
-/// let mut conn2 = pool.get().await.unwrap();
-/// //do another staff
-/// pool.close();
-/// # }
-/// ```
 pub struct YdbPoolBuilder<C: Credentials + Send + Sync> {
     inner: PoolBuilder<ConnectionManager<C>>,
     update_interval: Duration,
@@ -162,6 +164,7 @@ impl<C: Credentials + Send + Sync> YdbPoolBuilder<C> {
         let update_interval = Duration::from_secs(77);
         Self {inner, update_interval}
     }
+    /// Set period to update endpoints for pool. Default is 77 seconds.
     pub fn update_interval(mut self, interval: Duration) -> Self {
         self.update_interval = interval;
         self

@@ -10,7 +10,7 @@ There is an alternative of [`ydb`]
 - ability to create your own implementation of common traits, like `Credentials`
 - easy to use pool objects
 
-### Features
+### Features:
 
 - [x] YQL Query for data (like DML)
 - [x] YQL Query for sheme (like DDL)
