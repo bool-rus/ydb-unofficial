@@ -47,7 +47,9 @@ impl YcEnv {
     }
     async fn create_token() -> AsciiValue {
         let out = tokio::process::Command::new("yc").arg("iam").arg("create-token").output().await.expect("cannot run `yc iam create-token`");
-        AsciiValue::try_from(out.stdout).unwrap()
+        let stdout = out.stdout.as_slice();
+        let stdout = &stdout[0..stdout.len() - 1];
+        AsciiValue::try_from(stdout).unwrap()
     }
 }
 
