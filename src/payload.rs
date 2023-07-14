@@ -36,6 +36,7 @@ macro_rules! payloaded {
     )+}
 }
 
+pub(crate) use payloaded;
 
 payloaded!(
     WhoAmIResponse: WhoAmIResult, 

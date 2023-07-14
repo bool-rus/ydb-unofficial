@@ -149,7 +149,6 @@ impl<C: Credentials> YdbConnection<C> {
         let interceptor = DBInterceptor {db_name, creds};
         let inner = tower::ServiceBuilder::new()
             .layer(tonic::service::interceptor(interceptor))
-            .layer_fn(|x|x)
             .service(channel);
         YdbConnection{inner, session_id: Arc::new(RwLock::new(None))}
     }
