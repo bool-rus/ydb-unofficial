@@ -1,4 +1,5 @@
 /target
+test-env
 .vscode
 .env
 Cargo.lock

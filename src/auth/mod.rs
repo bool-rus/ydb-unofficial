@@ -58,3 +58,20 @@ impl Drop for YcEnv {
         self.abort_handle.abort();
     }
 }
+
+/// Service account authentication implementation. Uses authorized key (in json) created by Yandex Cloud
+/// Implements [`Credentials`] with auto-updatable token
+/// 
+/// # Examples
+/// 
+/// ``` rust
+/// # #[tokio::main]
+/// # async fn main() {
+/// use ydb_unofficial::auth::service_account::{ServiceAccountKey, ServiceAccountCredentials};
+/// let path = "test-env/authorized_key.json";
+/// let file = std::fs::File::open(path).unwrap();
+/// let key: ServiceAccountKey = serde_json::from_reader(file).unwrap();
+/// let creds = ServiceAccountCredentials::create(key).await.unwrap();
+/// # }
+/// ```
+pub mod service_account;
