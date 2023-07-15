@@ -11,5 +11,3 @@ pub use payload::YdbResponseWithResult;
 pub use client::YdbConnection;
 pub use client::YdbTransaction;
 pub use reimport::*;
-
-pub mod asa;
