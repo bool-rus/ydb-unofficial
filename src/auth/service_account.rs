@@ -87,50 +87,9 @@ fn make_jwt(key: &ServiceAccountKey) -> String {
     let claims = Claims::create(Duration::from_mins(1))
     .with_issuer(&key.service_account_id)
     .with_audience("https://iam.api.cloud.yandex.net/iam/v1/tokens");
-
-let pair = key.private_key.clone().with_key_id(&key.id);
-let token = pair.sign(claims).unwrap();
-token
-}
-
-#[tokio::test]
-async fn get_token() {
-    use std::fs::File;
-    use std::io::BufReader;
-    let path = "test-env/authorized_key_4096.json";
-    let file = File::open(path).unwrap();
-    
-    let reader = BufReader::new(file);
-    let key: ServiceAccountKey = serde_json::from_reader(reader).unwrap();
-    {
-        let creds = ServiceAccountCredentials::create(key).await.unwrap();
-        
-        use std::env::var;
-        let url = var("YDB_URL").expect("YDB_URL not set");
-        let db_name = var("DB_NAME").expect("DB_NAME not set");
-        
-        let endpoint = crate::client::create_endpoint(url.try_into().unwrap());
-        let channel = endpoint.connect_lazy();
-        let mut service = crate::YdbConnection::new(channel, db_name.as_str().try_into().unwrap(), creds);
-        
-        // how to use it, e.g. use discovery service:
-        use crate::generated::ydb::discovery::ListEndpointsRequest;
-        let endpoints_response = service.discovery().list_endpoints(
-            ListEndpointsRequest{
-                database: db_name.into(), 
-                ..Default::default()
-            }
-        ).await.unwrap();
-        
-        // how you can parse response to invoke result with YdbResponseWithResult trait
-        use crate::YdbResponseWithResult;
-        let endpoints_result = endpoints_response.get_ref().result().unwrap();
-        println!("endpoints {:?}", endpoints_result.endpoints);
-        assert!(endpoints_result.endpoints.len() > 0);
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-    }
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-    
+    let pair = key.private_key.clone().with_key_id(&key.id);
+    let token = pair.sign(claims).unwrap();
+    token
 }
 
 mod ps256_public_key {
