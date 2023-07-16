@@ -1,5 +1,6 @@
 //pub mod generated;
 pub mod client;
+#[cfg(feature = "pool")]
 pub mod pool;
 pub mod auth;
 pub mod error;

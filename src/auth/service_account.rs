@@ -1,9 +1,5 @@
-
-
-use std::default;
 use std::sync::{Arc, RwLock};
 use std::time::{UNIX_EPOCH, SystemTime, Duration};
-
 
 use jwt_simple::prelude::{Claims, PS256KeyPair, PS256PublicKey, RSAKeyPairLike};
 use serde::{Serialize, Deserialize};

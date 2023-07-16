@@ -59,6 +59,7 @@ impl Drop for YcEnv {
     }
 }
 
+#[cfg(feature = "auth-sa")]
 /// Service account authentication implementation. Uses authorized key (in json) created by Yandex Cloud
 /// Implements [`Credentials`] with auto-updatable token
 /// 
