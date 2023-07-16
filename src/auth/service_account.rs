@@ -1,11 +1,13 @@
 
 
+use std::default;
 use std::sync::{Arc, RwLock};
-use std::time::{UNIX_EPOCH, SystemTime};
+use std::time::{UNIX_EPOCH, SystemTime, Duration};
 
 
 use jwt_simple::prelude::{Claims, PS256KeyPair, PS256PublicKey, RSAKeyPairLike};
 use serde::{Serialize, Deserialize};
+use tonic::transport::Uri;
 use yandex_cloud::yandex::cloud::iam::v1::CreateIamTokenResponse;
 
 use crate::auth::Credentials;
@@ -22,6 +24,31 @@ pub struct ServiceAccountKey {
     pub private_key: PS256KeyPair,
 }
 
+#[derive(Debug, Clone)]
+pub struct UpdateConfig {
+    // Auth endpoint. Default is grpcs://iam.api.cloud.yandex.net:443
+    pub endpoint: Uri,
+    /// One of JWT cliams. Default is https://iam.api.cloud.yandex.net/iam/v1/tokens
+    pub audience: String,
+    /// Default update period. Used if received auth response without `expired_at`. Default is 50 minutes.
+    pub update_period: Duration,
+    /// Time reserve to update token. Default is 1 minute.
+    pub update_time_reserve: Duration,
+    pub token_request_claim_time: Duration,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { 
+            endpoint: "grpcs://iam.api.cloud.yandex.net:443".parse().unwrap(), 
+            audience: "https://iam.api.cloud.yandex.net/iam/v1/tokens".into(), 
+            update_period: Duration::from_secs(50*60), 
+            update_time_reserve: Duration::from_secs(60),
+            token_request_claim_time: Duration::from_secs(60),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ServiceAccountCredentials {
     token: Arc<RwLock<String>>,
@@ -35,15 +62,18 @@ impl Credentials for ServiceAccountCredentials {
 
 impl ServiceAccountCredentials {
     pub async fn create(key: ServiceAccountKey) -> Result<Self, tonic::Status> {
-        let mut response = request_iam_token(&key).await?;
+        Self::create_with_config(Default::default(), key).await
+    }
+    pub async fn create_with_config(conf: UpdateConfig, key: ServiceAccountKey) -> Result<Self, tonic::Status> {
+        let mut response = conf.request_iam_token(&key).await?;
         let token = Arc::new(RwLock::new(response.iam_token.clone()));
         let result = Self {token};
         let token = Arc::downgrade(&result.token);
         tokio::spawn(async move {
             loop {
-                let sleep_duration = invoke_sleep_duration(&response);
+                let sleep_duration = conf.invoke_sleep_duration(&response);
                 tokio::time::sleep(sleep_duration).await;
-                response = request_iam_token(&key).await.unwrap();
+                response = conf.request_iam_token(&key).await.unwrap();
                 if let Some(token) = token.upgrade() {
                     *token.write().unwrap() = response.iam_token.clone();
                     log::info!("Iam token updated");
@@ -57,39 +87,38 @@ impl ServiceAccountCredentials {
     }
 }
 
-fn invoke_sleep_duration(response: &CreateIamTokenResponse) -> tokio::time::Duration {
-    use std::time::Duration;
-    let CreateIamTokenResponse {iam_token: _, expires_at} = response;
-    let expires = if let Some(ts) = expires_at {
-        (UNIX_EPOCH + Duration::from_secs(ts.seconds as u64)) //convert ts to SystemTime
-        .duration_since(SystemTime::now() + Duration::from_secs(60)) //расчитываем время сна (с запасом)
-        .unwrap_or_default()
-    } else  {
-        Duration::from_secs(50)
-    };
-    expires.into()
-}
 
-pub async fn request_iam_token(key: &ServiceAccountKey) -> Result<CreateIamTokenResponse, tonic::Status> {
-    let jwt = make_jwt(key);
-    let url = "grpcs://iam.api.cloud.yandex.net:443";
-    let endpoint = crate::client::create_endpoint(url.try_into().unwrap());
-    let mut client = yandex_cloud::yandex::cloud::iam::v1::iam_token_service_client::IamTokenServiceClient::new(endpoint.connect_lazy());
-    let request = yandex_cloud::yandex::cloud::iam::v1::CreateIamTokenRequest {
-        identity: Some(yandex_cloud::yandex::cloud::iam::v1::create_iam_token_request::Identity::Jwt(jwt))
-    };
-    let resp = client.create(request).await?;
-    Ok(resp.into_inner())
-}
+impl UpdateConfig {
+    pub async fn request_iam_token(&self, key: &ServiceAccountKey) -> Result<CreateIamTokenResponse, tonic::Status> {
+        let jwt = self.make_jwt(key);
+        let endpoint = crate::client::create_endpoint(self.endpoint.clone());
+        let mut client = yandex_cloud::yandex::cloud::iam::v1::iam_token_service_client::IamTokenServiceClient::new(endpoint.connect_lazy());
+        let request = yandex_cloud::yandex::cloud::iam::v1::CreateIamTokenRequest {
+            identity: Some(yandex_cloud::yandex::cloud::iam::v1::create_iam_token_request::Identity::Jwt(jwt))
+        };
+        let resp = client.create(request).await?;
+        Ok(resp.into_inner())
+    }
 
-fn make_jwt(key: &ServiceAccountKey) -> String {
-    use jwt_simple::prelude::Duration;
-    let claims = Claims::create(Duration::from_mins(1))
-    .with_issuer(&key.service_account_id)
-    .with_audience("https://iam.api.cloud.yandex.net/iam/v1/tokens");
-    let pair = key.private_key.clone().with_key_id(&key.id);
-    let token = pair.sign(claims).unwrap();
-    token
+    pub fn make_jwt(&self, key: &ServiceAccountKey) -> String {
+        let claims = Claims::create(self.token_request_claim_time.into())
+        .with_issuer(&key.service_account_id)
+        .with_audience(&self.audience);
+        let pair = key.private_key.clone().with_key_id(&key.id);
+        let token = pair.sign(claims).unwrap();
+        token
+    }
+    pub fn invoke_sleep_duration(&self, response: &CreateIamTokenResponse) -> tokio::time::Duration {
+        let CreateIamTokenResponse {iam_token: _, expires_at} = response;
+        let expires = if let Some(ts) = expires_at {
+            (UNIX_EPOCH + Duration::from_secs(ts.seconds as u64)) //convert ts to SystemTime
+            .duration_since(SystemTime::now() + self.update_time_reserve) //расчитываем время сна (с запасом)
+            .unwrap_or_default()
+        } else  {
+            self.update_period
+        };
+        expires.into()
+    }
 }
 
 mod ps256_public_key {

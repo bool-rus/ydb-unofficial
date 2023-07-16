@@ -18,9 +18,11 @@ There is an alternative of [`ydb`]
 - [ ] Connect over grps (without tls) - not worked, unknown cause
 - [x] Connection pool (with [`deadpool`])
 - [x] Token authentication
-- [ ] Service account key authentication
+- [x] Service account key authentication
 - [ ] Metadata authentication
 - [ ] Query helpers (a lot of)
 - [ ] Connection string 
+- [ ] [`sqlx`] integration
 
 [`deadpool`]: https://crates.io/crates/deadpool
+[`sqlx`]: https://crates.io/crates/sqlx
