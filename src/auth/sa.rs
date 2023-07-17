@@ -6,7 +6,8 @@ use serde::{Serialize, Deserialize};
 use tonic::transport::Uri;
 use yandex_cloud::yandex::cloud::iam::v1::CreateIamTokenResponse;
 
-use crate::auth::Credentials;
+use crate::AsciiValue;
+use super::Credentials;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceAccountKey {
@@ -30,6 +31,7 @@ pub struct UpdateConfig {
     pub update_period: Duration,
     /// Time reserve to update token. Default is 1 minute.
     pub update_time_reserve: Duration,
+    /// JWT claim expiration. Default is 1 minute.
     pub token_request_claim_time: Duration,
 }
 
@@ -47,12 +49,12 @@ impl Default for UpdateConfig {
 
 #[derive(Clone)]
 pub struct ServiceAccountCredentials {
-    token: Arc<RwLock<String>>,
+    token: Arc<RwLock<AsciiValue>>,
 }
 
 impl Credentials for ServiceAccountCredentials {
     fn token(&self) -> crate::AsciiValue {
-        self.token.read().unwrap().clone().try_into().unwrap()
+        self.token.read().unwrap().clone()
     }
 }
 
@@ -62,7 +64,7 @@ impl ServiceAccountCredentials {
     }
     pub async fn create_with_config(conf: UpdateConfig, key: ServiceAccountKey) -> Result<Self, tonic::Status> {
         let mut response = conf.request_iam_token(&key).await?;
-        let token = Arc::new(RwLock::new(response.iam_token.clone()));
+        let token = Arc::new(RwLock::new(response.iam_token.clone().try_into().unwrap()));
         let result = Self {token};
         let token = Arc::downgrade(&result.token);
         tokio::spawn(async move {
@@ -71,7 +73,7 @@ impl ServiceAccountCredentials {
                 tokio::time::sleep(sleep_duration).await;
                 response = conf.request_iam_token(&key).await.unwrap();
                 if let Some(token) = token.upgrade() {
-                    *token.write().unwrap() = response.iam_token.clone();
+                    *token.write().unwrap() = response.iam_token.clone().try_into().unwrap();
                     log::info!("Iam token updated");
                 } else {
                     log::info!("ServiceAccountCredentials removed");
