@@ -45,4 +45,11 @@ payloaded!(
     ExecuteDataQueryResponse: ExecuteQueryResult,
     BeginTransactionResponse: BeginTransactionResult,
     CommitTransactionResponse: CommitTransactionResult,
+    PrepareDataQueryResponse: PrepareQueryResult,
+    ExplainDataQueryResponse: ExplainQueryResult,
+
+    BulkUpsertResponse: BulkUpsertResult,
+    DescribeTableOptionsResponse: DescribeTableOptionsResult,
+    DescribeTableResponse: DescribeTableResult,
+    KeepAliveResponse: KeepAliveResult,
 );
