@@ -15,7 +15,7 @@ There is an alternative of [`ydb`]
 - [x] YQL Query for data (like DML)
 - [x] YQL Query for sheme (like DDL)
 - [x] Connect over grpcs (with tls)
-- [ ] Connect over grps (without tls) - not worked, unknown cause
+- [ ] Connect over grpc (without tls) - not worked, unknown cause
 - [x] Connection pool (with [`deadpool`])
 - [x] Token authentication
 - [x] Service account key authentication

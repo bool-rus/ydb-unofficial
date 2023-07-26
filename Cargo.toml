@@ -1,11 +1,15 @@
 [package]
 name = "ydb-unofficial"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "Apache-2.0"
 keywords = ["database","db","ydb"]
 description = "Unofficial Ydb client library written on rust"
 repository = "https://hub.mos.ru/bool.rus/ydb-unofficial.git"
+
+[package.metadata.docs.rs]
+features = ["pool", "auth-sa", "auth-cli"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 doctest = true 

@@ -15,9 +15,12 @@ impl Credentials for String {
 }
 
 #[cfg(feature = "auth-cli")]
+#[cfg_attr(docsrs, doc(cfg(feature = "auth-cli")))]
+/// [`Credentials`] implementation that create and updates token every 11 hours by run command `yc iam create-token`
 pub mod cli;
 
 #[cfg(feature = "auth-sa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "auth-sa")))]
 /// Service account authentication implementation. Uses authorized key (in json) created by Yandex Cloud
 /// Implements [`Credentials`] with auto-updatable token
 /// 

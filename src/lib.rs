@@ -1,6 +1,9 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
 //pub mod generated;
 pub mod client;
 #[cfg(feature = "pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "pool")))]
 pub mod pool;
 pub mod auth;
 pub mod error;
