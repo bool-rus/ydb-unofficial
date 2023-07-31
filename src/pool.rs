@@ -27,41 +27,11 @@ use tower::ServiceExt;
 use payload::YdbResponseWithResult;
 use generated::ydb::discovery::{EndpointInfo, ListEndpointsRequest};
 use auth::Credentials;
+use crate::client::YdbEndpoint;
 
 
 type YdbEndpoints = std::sync::RwLock<Vec<YdbEndpoint>>;
 pub type YdbPool<C> = Pool<ConnectionManager<C>>;
-
-#[derive(Debug, Clone)]
-pub struct YdbEndpoint {
-    pub ssl: bool,
-    pub host: String,
-    pub port: u16,
-    pub load_factor: f32,
-}
-
-impl YdbEndpoint {
-    pub fn scheme(&self) -> &'static str {
-        if self.ssl { "grpcs" } else { "grpc" }
-    }
-}
-
-impl TryFrom<Uri> for YdbEndpoint {
-    type Error = String;
-
-    fn try_from(value: Uri) -> Result<Self, Self::Error> {
-        //TODO: убрать дублирование
-        let ssl = match value.scheme_str() {
-            Some("grpc") => false,
-            Some("grpcs") => true,
-            _ => return Err("Unknown protocol".to_owned()),
-        };
-        let host = value.host().ok_or("no host")?.to_owned();
-        let port = value.port_u16().ok_or("no port")?;
-        let load_factor = 0.0;
-        Ok(Self {ssl, host, port, load_factor})
-    }
-}
 
 impl From<EndpointInfo> for YdbEndpoint {
     fn from(value: EndpointInfo) -> Self {
@@ -104,7 +74,7 @@ impl<C: Credentials> ConnectionManager<C> {
     pub fn next_endpoint(&self) -> Endpoint {
         let endpoints = self.endpoints.read().unwrap();
         if endpoints.len() == 1 {
-            return make_endpoint(endpoints.first().unwrap());
+            return endpoints.first().unwrap().make_endpoint();
         } else if endpoints.is_empty() {
             panic!("List of endpoints is empty");
         }

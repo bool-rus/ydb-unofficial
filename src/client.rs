@@ -52,6 +52,46 @@ use generated::ydb::table::transaction_settings::TxMode;
 use generated::ydb::table::v1::table_service_client::TableServiceClient;
 use tower::Service;
 
+#[derive(Debug, Clone)]
+pub struct YdbEndpoint {
+    pub ssl: bool,
+    pub host: String,
+    pub port: u16,
+    pub load_factor: f32,
+}
+
+impl YdbEndpoint {
+    pub fn scheme(&self) -> &'static str {
+        if self.ssl { "grpcs" } else { "grpc" }
+    }
+    pub fn make_endpoint(&self) -> Endpoint {
+        let uri: tonic::transport::Uri = format!("{}://{}:{}", self.scheme(), self.host, self.port).try_into().unwrap();
+        let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
+        if self.ssl {
+            e = e.tls_config(Default::default()).unwrap()
+        }
+        e
+    }
+}
+
+impl TryFrom<Uri> for YdbEndpoint {
+    type Error = String;
+
+    fn try_from(value: Uri) -> Result<Self, Self::Error> {
+        //TODO: убрать дублирование
+        let ssl = match value.scheme_str() {
+            Some("grpc") => false,
+            Some("grpcs") => true,
+            _ => return Err("Unknown protocol".to_owned()),
+        };
+        let host = value.host().ok_or("no host")?.to_owned();
+        let port = value.port_u16().ok_or("no port")?;
+        let load_factor = 0.0;
+        Ok(Self {ssl, host, port, load_factor})
+    }
+}
+
+
 /// Creates endpoint from uri
 /// If protocol is `grpcs`, then creates [`tonic::transport::ClientTlsConfig`] and applies to [`Endpoint`]
 ///
