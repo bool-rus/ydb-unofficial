@@ -8,7 +8,7 @@ use tonic::transport::Uri;
 use yandex_cloud::yandex::cloud::iam::v1::CreateIamTokenResponse;
 
 use crate::AsciiValue;
-use super::Credentials;
+use super::{Credentials, UpdatableToken};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServiceAccountKey {
@@ -54,12 +54,19 @@ impl Credentials for ServiceAccountCredentials {
         self.token.read().unwrap().clone()
     }
 }
+impl Into<UpdatableToken> for ServiceAccountCredentials {
+    fn into(self) -> UpdatableToken {
+        let Self{token} = self;
+        UpdatableToken { token }
+    }
+}
 
 impl ServiceAccountCredentials {
     pub async fn create(key: ServiceAccountKey) -> Result<Self, tonic::Status> {
         Self::create_with_config(Default::default(), key).await
     }
     pub async fn create_with_config(conf: UpdateConfig, key: ServiceAccountKey) -> Result<Self, tonic::Status> {
+        //TODO: переделать на Stream
         let response = conf.request_iam_token(&key).await?;
         let mut sleep_duration = conf.invoke_sleep_duration(&response);
         let token = Arc::new(RwLock::new(response.iam_token.clone().try_into().unwrap()));

@@ -134,7 +134,9 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         Ok(request)    
     }
 }
+
 /// Ydb connection implementation, that pass database name and auth data to grpc channel
+#[derive(Debug)]
 pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -247,6 +249,29 @@ impl<C: Credentials> YdbConnection<C> {
     fn session_id(&self) -> Option<String> {
         self.session_id.read().unwrap().clone()
     }
+    pub async fn close_session(&mut self) -> Result<(), YdbError> {
+        if let Some(session_id) = self.session_id() {
+            delete_session(&self.session_id, self.inner.clone()).await?;
+        }
+        Ok(())
+    }
+    #[doc(hidden)]
+    pub fn close_session_hard(self) {
+        *self.session_id.write().unwrap() = None;
+    }
+}
+
+
+async fn delete_session<C: Credentials>(session_ref: &Arc<RwLock<Option<String>>>, service: InterceptedService<Channel, DBInterceptor<C>>)  -> Result<(), YdbError> {
+    let session_id = session_ref.read().unwrap().clone();
+    if let Some(session_id) = session_id {
+        let mut client = TableServiceClient::new(service);
+        let response = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await?;
+        let code = response.get_ref().operation.as_ref().ok_or(YdbError::EmptyResponse)?.status();
+        process_session_fail(code, session_ref);
+    }
+    *session_ref.write().unwrap() = None;
+    Ok(())
 }
 
 impl<C: Credentials> Drop for YdbConnection<C> {
@@ -269,11 +294,26 @@ impl<C: Credentials> Drop for YdbConnection<C> {
 /// [`TableServiceClient`] with active session.
 /// for each method (that requires session_id) table client injects session_id field
 /// Session may be invalid. In this case you need to recreate that client with [`YdbConnection::table`]
+#[derive(Debug)]
 pub struct TableClientWithSession<'a, C: Credentials> {
     //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbConnection не достать
     session_ref: Arc<RwLock<Option<String>>>, 
     session_id: String,
     client: TableServiceClient<&'a mut YdbConnection<C>>,
+}
+
+fn process_session_fail(
+    code: crate::generated::ydb::status_ids::StatusCode, 
+    session_ref: &Arc<RwLock<Option<String>>>,
+) {
+    use crate::generated::ydb::status_ids::StatusCode;
+    use tonic::Status;
+    match code {
+        StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
+            *session_ref.write().unwrap() = None;
+        },
+        _ => {}
+    }
 }
 
 macro_rules! delegate {
@@ -286,11 +326,10 @@ macro_rules! delegate {
             use crate::error::ErrWithOperation;
             match status {
                 StatusCode::Success => Ok(result),
-                StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
-                    *self.session_ref.write().unwrap() = None;
+                _ => {
+                    process_session_fail(status, &self.session_ref);
                     Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap())))
-                }
-                _ => Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap()))),
+                },
             }
         }
     )+} 
@@ -313,6 +352,7 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         fn begin_transaction(BeginTransactionRequest) -> BeginTransactionResponse;
         fn commit_transaction(CommitTransactionRequest) -> CommitTransactionResponse;
         fn rollback_transaction(RollbackTransactionRequest) -> RollbackTransactionResponse;
+        fn delete_session(DeleteSessionRequest) -> DeleteSessionResponse;
     }
     pub async fn stream_read_table(&mut self, mut req: ReadTableRequest) -> Result<tonic::Response<tonic::codec::Streaming<ReadTableResponse>>, tonic::Status> {
         req.session_id = self.session_id.clone();

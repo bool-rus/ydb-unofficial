@@ -1,7 +1,7 @@
 use std::sync::{RwLock, Arc};
 use std::time::Duration;
 use crate::AsciiValue;
-use super::Credentials;
+use super::{Credentials, UpdatableToken};
 
 #[derive(Debug, Clone)]
 /// An automaitc updatable token.
@@ -14,6 +14,13 @@ pub struct Cli {
 impl Credentials for Cli {
     fn token(&self) -> AsciiValue {
         self.token.read().unwrap().clone()
+    }
+}
+
+impl Into<UpdatableToken> for Cli {
+    fn into(self) -> UpdatableToken {
+        let Self{ token} = self;
+        UpdatableToken { token }
     }
 }
 
