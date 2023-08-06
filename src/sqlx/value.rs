@@ -3,10 +3,17 @@ use std::sync::Arc;
 use sqlx_core::type_info::TypeInfo;
 use sqlx_core::value::ValueRef;
 use sqlx_core::value::Value as XValue;
+use sqlx_core::row::Row;
+use sqlx_core::column::Column as XColumn;
+use sqlx_core::column::ColumnIndex;
 use ydb_grpc_bindings::generated::ydb;
 use ydb::r#type::PrimitiveTypeId;
 use ydb::value::Value;
 use ydb::r#type::Type as YType;
+use ydb::table_stats::QueryStats;
+use ydb::Column;
+use ydb::ResultSet;
+use ydb::table::ExecuteQueryResult;
 
 use super::Ydb;
 
@@ -118,20 +125,21 @@ fn sometest() {
     //let q: sqlx_core::query::Query = todo!();
 }
 
-use sqlx_core::row::Row;
-use sqlx_core::column::Column as XColumn;
-use sqlx_core::column::ColumnIndex;
-use ydb::Column;
-use ydb::ResultSet;
-use ydb::table::ExecuteQueryResult;
+
 
 #[derive(Debug, Clone, Default)]
-pub struct YdbQueryResult {
+pub struct YdbResultSet {
     columns: Arc<Columns>,
     rows: Vec<YdbRow>
 }
 
-impl YdbQueryResult {
+#[derive(Debug, Clone, Default)]
+pub struct YdbQueryResult {
+    pub query_stats: Option<QueryStats>,
+    pub result_sets: Vec<YdbResultSet>,
+}
+
+impl YdbResultSet {
     pub fn rows(&self) -> &[YdbRow] {
         &self.rows
     }
@@ -165,12 +173,14 @@ impl Columns {
 }
 
 impl From<ExecuteQueryResult> for YdbQueryResult {
-    fn from(mut result: ExecuteQueryResult) -> Self {
-        result.result_sets.pop().map(Into::into).unwrap_or_default()
+    fn from(result: ExecuteQueryResult) -> Self {
+        let ExecuteQueryResult {query_stats, result_sets, .. } = result;
+        let result_sets = result_sets.into_iter().map(Into::into).collect();
+        Self { query_stats, result_sets }
     }
 }
 
-impl From<ResultSet> for YdbQueryResult {
+impl From<ResultSet> for YdbResultSet {
     fn from(rs: ResultSet) -> Self {
         let ResultSet {columns, rows, ..} = rs;
         let columns = columns.into_iter().enumerate().map(YdbColumn::from).collect();

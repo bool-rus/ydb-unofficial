@@ -1,4 +1,5 @@
 use futures::future::FutureExt;
+use sqlx_core::describe::Describe;
 use sqlx_core::executor::{Executor, Execute};
 use sqlx_core::Either;
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
@@ -10,7 +11,8 @@ use crate::YdbResponseWithResult;
 use crate::error::YdbError;
 use crate::{client::TableClientWithSession, auth::UpdatableToken};
 
-use super::{Ydb, YdbQueryResult, YdbRow, YdbTypeInfo, YdbStatement};
+use super::convert::Streamed;
+use super::{Ydb, YdbResultSet, YdbRow, YdbTypeInfo, YdbStatement, YdbQueryResult};
 type YdbExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
@@ -27,7 +29,6 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
                 tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
             }))
         });
-        
         Box::pin(async move {
             let response = self.execute_data_query(ExecuteDataQueryRequest{ query, tx_control, ..Default::default()}).await?;
             let result = response.into_inner().result().map_err(YdbError::from)?;
@@ -36,91 +37,67 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     }
 
     fn fetch_many<'e, 'q: 'e, E: 'q>(
-        mut self,
+        self,
         query: E,
     ) -> BoxStream<'e, Result<Either<YdbQueryResult, YdbRow>,sqlx_core::Error>>
-    where 'c: 'e, E: Execute<'q, Ydb> {
+    where 'c: 'e, E: Execute<'q, Ydb> { 
+        Box::pin(Streamed::new(self.execute(query).map(|r|r.map(|qr|{
+            let cap = qr.result_sets.iter().fold(0, |sum, rs|sum + rs.rows().len());
+            let mut v = Vec::with_capacity(cap);
+            for rs in qr.result_sets {
+                rs.to_rows().into_iter().fold(&mut v, |v, r| {
+                    v.push(Either::Right(r));
+                    v
+                });
+            }
+            v
+        }))))
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: 'q>(self, query: E) -> BoxFuture<'e, Result<Option<YdbRow>, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Ydb> { Box::pin( async move {
+        let rows = self.fetch_all(query).await?;
+        Ok(rows.into_iter().next())
+    })}
+
+    fn prepare_with<'e, 'q: 'e>( self, sql: &'q str, parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e {
         todo!()
     }
 
-    fn fetch_optional<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxFuture<'e, Result<Option<YdbRow>, sqlx_core::Error>>
-    where 'c: 'e, E: Execute<'q, Ydb> {
-        todo!()
-    }
-
-    fn prepare_with<'e, 'q: 'e>(
-        self,
-        sql: &'q str,
-        parameters: &'e [YdbTypeInfo],
-    ) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
-    where
-        'c: 'e {
-        todo!()
-    }
-
-    fn describe<'e, 'q: 'e>(
-        self,
-        sql: &'q str,
-    ) -> BoxFuture<'e, Result<sqlx_core::describe::Describe<Ydb>, sqlx_core::Error>>
+    fn describe<'e, 'q: 'e>(self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
     where 'c: 'e {
         todo!()
     }
 
 
-    fn fetch_all<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxFuture<'e, Result<Vec<YdbRow>, sqlx_core::Error>>
-    where 'c: 'e, E: Execute<'q, Self::Database>,
-    { Box::pin ( async move {
+    fn fetch_all<'e, 'q: 'e, E: 'q>( self, query: E ) -> BoxFuture<'e, Result<Vec<YdbRow>, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {Box::pin ( async move {
         let result = self.execute(query).await?;
-        Ok(result.to_rows())
+        let rs = result.result_sets.into_iter().next().unwrap();
+        Ok(rs.to_rows())
     })}
 
-    fn execute_many<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxStream<'e, Result<YdbQueryResult, sqlx_core::Error>>
-    where
-        'c: 'e,
-        E: Execute<'q, Self::Database>,
-    {
-        todo!()
+    fn execute_many<'e, 'q: 'e, E: 'q>( self, query: E) -> BoxStream<'e, Result<YdbQueryResult, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        Box::pin(self.execute(query).into_stream())
     }
 
-    fn fetch<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxStream<'e, Result<YdbRow, sqlx_core::Error>>
-    where
-        'c: 'e,
-        E: Execute<'q, Self::Database>,
-    {
-        todo!()
+    fn fetch<'e, 'q: 'e, E: 'q>(self, query: E) -> BoxStream<'e, Result<YdbRow, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        Box::pin(Streamed::new(self.fetch_all(query)))
     }
 
-    fn fetch_one<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxFuture<'e, Result<YdbRow, sqlx_core::Error>>
-    where
-        'c: 'e,
-        E: Execute<'q, Self::Database>,
-    {
-        todo!()
-    }
+    fn fetch_one<'e, 'q: 'e, E: 'q>(self, query: E) -> BoxFuture<'e, Result<YdbRow, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> { Box::pin( async move {
+        let row = self.fetch_optional(query).await?;
+        row.ok_or(sqlx_core::Error::RowNotFound)
+    })}
 
-    fn prepare<'e, 'q: 'e>(
-        self,
-        query: &'q str,
-    ) -> BoxFuture<'e, Result<<Self::Database as sqlx_core::database::HasStatement<'q>>::Statement, sqlx_core::Error>>
-    where
-        'c: 'e,
-    {
+    fn prepare<'e, 'q: 'e>(self, query: &'q str) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e {
         self.prepare_with(query, &[])
     }
 
 }
+

@@ -4,6 +4,7 @@ mod database;
 mod error;
 mod connection;
 mod executor;
+mod convert;
 //mod query;
 
 type YdbConnection = crate::YdbConnection<crate::auth::UpdatableToken>;
