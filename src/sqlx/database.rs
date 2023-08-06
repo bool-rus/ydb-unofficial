@@ -1,13 +1,17 @@
 use std::fmt::Display;
 
+use sqlx_core::arguments::IntoArguments;
 use sqlx_core::{row::Row, column::Column, type_info::TypeInfo, statement::Statement, arguments::Arguments};
 use sqlx_core::Either;
 use sqlx_core::database::{Database, HasArguments, HasStatement, HasValueRef};
+use ydb_grpc_bindings::generated::ydb;
 
 
 use super::{YdbValueRef, YdbTypeInfo, YdbValue};
 use super::{YdbRow, YdbQueryResult, YdbColumn};
 use super::{dumb::Dumb, YdbConnection};
+
+pub type YdbArgumentBuffer = sqlx_core::HashMap<String, ydb::TypedValue>;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Ydb;
@@ -37,7 +41,7 @@ impl<'a> HasArguments<'a> for Ydb {
 
     type Arguments = YdbArguments;
 
-    type ArgumentBuffer=();
+    type ArgumentBuffer=YdbArgumentBuffer;
 }
 
 #[derive(Debug, Default)]
@@ -53,6 +57,12 @@ impl<'q> Arguments<'q> for YdbArguments {
     fn add<T>(&mut self, value: T)
     where
         T: 'q + Send + sqlx_core::encode::Encode<'q, Self::Database> + sqlx_core::types::Type<Self::Database> {
+        todo!()
+    }
+}
+
+impl<'a> IntoArguments<'a, Ydb> for YdbArguments {
+    fn into_arguments(self) -> YdbArguments {
         todo!()
     }
 }

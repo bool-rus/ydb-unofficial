@@ -23,6 +23,12 @@ pub struct YdbValue {
     info: YdbTypeInfo,
 }
 
+impl YdbValue {
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+}
+
 impl XValue for YdbValue {
     type Database = Ydb;
     fn as_ref(&self) -> YdbValueRef { &self }
@@ -41,6 +47,7 @@ impl<'a> ValueRef<'a> for YdbValueRef<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum YdbTypeInfo {
+    //TODO: сделать без Optional, это здесь не на уровне типов разруливается
     Normal(TypeKind),
     Optional(TypeKind),
     Null,
