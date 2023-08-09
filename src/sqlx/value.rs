@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use sqlx_core::HashMap;
 use sqlx_core::type_info::TypeInfo;
 use sqlx_core::value::ValueRef;
 use sqlx_core::value::Value as XValue;
@@ -72,7 +73,7 @@ impl From<&YType> for YdbTypeInfo {
         use YType::*;
         match value {
             TypeId(id) => Self::Primitive(PrimitiveTypeId::from_i32(*id).unwrap_or_default()),
-            DecimalType(dt) => todo!(),
+            DecimalType(_) => todo!(),
             NullType(_) => Self::Null,
             _ => Self::Unknown
         }
@@ -113,11 +114,15 @@ pub struct YdbResultSet {
 
 #[derive(Debug, Clone, Default)]
 pub struct YdbQueryResult {
+    //TODO: добавить возврат updates, reads, deletes, affected_rows
     pub query_stats: Option<QueryStats>,
     pub result_sets: Vec<YdbResultSet>,
 }
 
 impl YdbResultSet {
+    pub fn columns(&self) -> &[YdbColumn] {
+        self.columns.columns.as_slice()
+    }
     pub fn rows(&self) -> &[YdbRow] {
         &self.rows
     }
@@ -133,8 +138,12 @@ struct Columns {
 }
 
 impl Columns {
-    fn new(cols: Vec<YdbColumn>) -> Arc<Self> {
-        todo!()
+    fn new(columns: Vec<YdbColumn>) -> Arc<Self> {
+        let map = columns.iter().fold(HashMap::new(), |mut map, col|{
+            map.insert(col.name.to_owned(), col.ordinal);
+            map
+        });
+        Arc::new(Self {map, columns})
     }
     fn as_slice(&self) -> &[YdbColumn] {
         &self.columns
@@ -170,7 +179,19 @@ impl From<ResultSet> for YdbResultSet {
 
 impl Extend<Self> for YdbQueryResult {
     fn extend<T: IntoIterator<Item = Self>>(&mut self, iter: T) {
-        log::error!("unimplemented")
+        for i in iter {
+            self.result_sets.extend(i.result_sets);
+            if let Some(qs) = &mut self.query_stats {
+                if let Some(e) = i.query_stats {
+                    qs.process_cpu_time_us += e.process_cpu_time_us;
+                    qs.total_cpu_time_us += e.total_cpu_time_us;
+                    qs.total_duration_us += e.total_duration_us;
+                    //TODO: доработать extend QueryPhasesStats
+                }
+            } else {
+                self.query_stats = i.query_stats;
+            }
+        }
     }
 }
 
@@ -259,4 +280,5 @@ fn from_select_bots() {
         }
     }
     let qr: YdbQueryResult = result.into();
+    println!("\nquery result: \n{qr:?}");
 }
