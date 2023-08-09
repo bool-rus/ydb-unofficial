@@ -5,6 +5,7 @@ mod error;
 mod connection;
 mod executor;
 mod types;
+mod minikql;
 
 type YdbConnection = crate::YdbConnection<crate::auth::UpdatableToken>;
 //pub use query::*;

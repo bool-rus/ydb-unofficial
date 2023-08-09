@@ -15,6 +15,8 @@ pub enum YdbError {
     Ydb(ErrWithOperation),
     #[error("Empty response")]
     EmptyResponse,
+    #[error("Error on decode ast")]
+    DecodeAst,
 }
 
 #[derive(Error, Debug)]

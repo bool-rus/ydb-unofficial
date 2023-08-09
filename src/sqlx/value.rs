@@ -247,9 +247,9 @@ impl ColumnIndex<YdbRow> for &str {
 
 #[derive(Debug, Clone)]
 pub struct YdbColumn {
-    ordinal: usize,
-    name: String,
-    type_info: YdbTypeInfo,
+    pub(crate) ordinal: usize,
+    pub(crate) name: String,
+    pub(crate) type_info: YdbTypeInfo,
 }
 
 impl From<(usize, Column)> for YdbColumn {

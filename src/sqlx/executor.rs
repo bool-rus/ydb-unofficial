@@ -4,15 +4,17 @@ use sqlx_core::describe::Describe;
 use sqlx_core::executor::{Executor, Execute};
 use sqlx_core::Either;
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
+use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
 use ydb_grpc_bindings::generated::ydb::table::transaction_control::TxSelector;
 use ydb_grpc_bindings::generated::ydb::table::transaction_settings::TxMode;
-use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, TransactionControl, TransactionSettings};
+use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, TransactionControl, TransactionSettings, ExplainDataQueryRequest};
 
 use crate::YdbResponseWithResult;
 use crate::error::YdbError;
 use crate::{client::TableClientWithSession, auth::UpdatableToken};
 
-use super::{Ydb, YdbRow, YdbTypeInfo, YdbStatement, YdbQueryResult};
+use super::minikql::invoke_outputs;
+use super::{Ydb, YdbRow, YdbTypeInfo, YdbStatement, YdbQueryResult, YdbColumn};
 type YdbExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
@@ -73,10 +75,28 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         todo!()
     }
 
-    fn describe<'e, 'q: 'e>(self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
-    where 'c: 'e {
-        todo!()
-    }
+    fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
+    where 'c: 'e { Box::pin( async move {
+        let response = self.explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
+        let result = response.into_inner().result().map_err(YdbError::from)?;
+        let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
+        node.eval();
+        let outputs = invoke_outputs(&node).unwrap_or_default();
+        let (columns, nullable) = outputs.into_iter().fold((vec![], vec![]), |(mut cols, mut nulls), (ordinal, name, typ, optional)|{
+            nulls.push(Some(optional));
+            let name = name.to_owned();
+            let type_info = if let Some(t) = PrimitiveTypeId::from_str_name(&typ.to_ascii_uppercase()) {
+                YdbTypeInfo::Normal(super::TypeKind::Primitive(t))
+            } else {
+                YdbTypeInfo::Unknown
+            };
+            cols.push(YdbColumn{ ordinal, name, type_info });
+            (cols, nulls)
+        });
+        //TODO: implement parameters invoking
+        let parameters = None;
+        Ok(Describe { columns, parameters, nullable })
+    })}
 
 
     fn fetch_all<'e, 'q: 'e, E: 'q>( self, query: E ) -> BoxFuture<'e, Result<Vec<YdbRow>, sqlx_core::Error>>
