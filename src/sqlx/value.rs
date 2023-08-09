@@ -58,11 +58,11 @@ impl Default for YdbTypeInfo {
         Self::Unknown
     }
 }
-impl From<ydb::OptionalType> for YdbTypeInfo {
-    fn from(value: ydb::OptionalType) -> Self {
-        if let Some(t) = value.item {
-            if let Some(t) = t.r#type {
-                    return Self::from(&t)
+impl From<&ydb::OptionalType> for YdbTypeInfo {
+    fn from(value: &ydb::OptionalType) -> Self {
+        if let Some(t) = &value.item {
+            if let Some(t) = &t.r#type {
+                    return Self::from(t)
             }
         }
         Self::Unknown
@@ -73,6 +73,7 @@ impl From<&YType> for YdbTypeInfo {
         use YType::*;
         match value {
             TypeId(id) => Self::Primitive(PrimitiveTypeId::from_i32(*id).unwrap_or_default()),
+            OptionalType(t) => Self::from(t.as_ref()),
             DecimalType(_) => todo!(),
             NullType(_) => Self::Null,
             _ => Self::Unknown
