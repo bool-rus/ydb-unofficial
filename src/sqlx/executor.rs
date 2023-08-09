@@ -86,7 +86,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
             nulls.push(Some(optional));
             let name = name.to_owned();
             let type_info = if let Some(t) = PrimitiveTypeId::from_str_name(&typ.to_ascii_uppercase()) {
-                YdbTypeInfo::Normal(super::TypeKind::Primitive(t))
+                YdbTypeInfo::Primitive(t)
             } else {
                 YdbTypeInfo::Unknown
             };

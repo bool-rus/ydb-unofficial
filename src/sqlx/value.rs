@@ -47,16 +47,9 @@ impl<'a> ValueRef<'a> for YdbValueRef<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum YdbTypeInfo {
-    //TODO: сделать без Optional, это здесь не на уровне типов разруливается
-    Normal(TypeKind),
-    Optional(TypeKind),
+    Primitive(PrimitiveTypeId),
     Null,
     Unknown,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypeKind {
-    Primitive(PrimitiveTypeId),
-    Decimal(ydb::DecimalType),
 }
 
 impl Default for YdbTypeInfo {
@@ -68,41 +61,20 @@ impl From<ydb::OptionalType> for YdbTypeInfo {
     fn from(value: ydb::OptionalType) -> Self {
         if let Some(t) = value.item {
             if let Some(t) = t.r#type {
-                if let Some(k) = TypeKind::from_y(&t) {
-                    return Self::Optional(k)
-                }
+                    return Self::from(&t)
             }
         }
         Self::Unknown
     }
 }
-impl TypeKind {
-    fn from_y(value: &YType) -> Option<Self> {
+impl From<&YType> for YdbTypeInfo {
+    fn from(value: &YType) -> Self {
         use YType::*;
         match value {
-            TypeId(id) => Some(Self::Primitive(PrimitiveTypeId::from_i32(*id)?)),
-            DecimalType(dt) => Some(Self::Decimal(dt.clone())),
-            _ => None
-        }
-    }
-    fn as_str_name(&self) -> &str {
-        match self {
-            TypeKind::Primitive(t) => t.as_str_name(),
-            TypeKind::Decimal(_) => "DECIMAL",
-        }
-    }
-}
-
-impl From<YType> for YdbTypeInfo {
-    fn from(value: YType) -> Self {
-        use YType::*;
-        if let Some(t) = TypeKind::from_y(&value) {
-            Self::Normal(t)
-        } else {
-            match value {
-                OptionalType(ot) => Self::from(*ot),
-                _ => Self::Unknown
-            }
+            TypeId(id) => Self::Primitive(PrimitiveTypeId::from_i32(*id).unwrap_or_default()),
+            DecimalType(dt) => todo!(),
+            NullType(_) => Self::Null,
+            _ => Self::Unknown
         }
     }
 }
@@ -119,8 +91,7 @@ impl TypeInfo for YdbTypeInfo {
     }
     fn name(&self) -> &str {
         match self {
-            YdbTypeInfo::Normal(t) |
-            YdbTypeInfo::Optional(t) => t.as_str_name(),
+            YdbTypeInfo::Primitive(t) => t.as_str_name(),
             YdbTypeInfo::Null => "NULL",
             YdbTypeInfo::Unknown => "UNKNOWN",
         }
@@ -255,7 +226,7 @@ pub struct YdbColumn {
 impl From<(usize, Column)> for YdbColumn {
     fn from((ordinal, c): (usize, Column)) -> Self {
         let Column { name, r#type } = c;
-        let type_info = r#type.map(|t|t.r#type).flatten().map(Into::into).unwrap_or_default();
+        let type_info = r#type.map(|t|t.r#type).flatten().map(|t|YdbTypeInfo::from(&t)).unwrap_or_default();
         Self {ordinal, name, type_info}
     }
 }

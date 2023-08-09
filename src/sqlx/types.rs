@@ -17,11 +17,11 @@ impl std::error::Error for AnotherType {}
 
 macro_rules! ydb_type {
     ($($t:ty = ($info:ident, $val:ident),)+) => {
-        use super::{Ydb, YdbTypeInfo, TypeKind, YdbValue};
+        use super::{Ydb, YdbTypeInfo, YdbValue};
         $(
         impl Type<Ydb> for $t {
             fn type_info() -> YdbTypeInfo {
-                YdbTypeInfo::Normal(TypeKind::Primitive(PrimitiveTypeId::$info))
+                YdbTypeInfo::Primitive(PrimitiveTypeId::$info)
             }
         }
         
