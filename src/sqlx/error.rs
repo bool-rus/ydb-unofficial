@@ -24,8 +24,3 @@ impl DatabaseError for YdbError {
         XErrorKind::Other
     }
 }
-
-#[test]
-fn tst_wrong_addr() {
-    let mut x = std::net::TcpStream::connect("ya.ru:80").unwrap();
-}
