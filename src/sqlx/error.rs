@@ -5,6 +5,7 @@ use sqlx_core::error::ErrorKind as XErrorKind;
 
 impl DatabaseError for YdbError {
     fn message(&self) -> &str {
+        #[allow(deprecated)]
         self.description()
     }
 

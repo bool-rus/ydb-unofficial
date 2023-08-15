@@ -62,7 +62,7 @@ impl<'a> Node<'a> {
         match self {
             Node::Apos(v) => v.find(key),
             v @ Node::Scal(name) if *name == key => Some(v),
-            Node::Scal(name) => {
+            Node::Scal(_name) => {
                 //println!("scalar [{name}] not a {key}");
                 None
             }
@@ -120,7 +120,7 @@ pub fn invoke_outputs<'a, 'b: 'a>(node: &'b Node<'a>) -> Option<Vec<(usize, &'a 
 }
 
 fn extended_aplhanumeric1(i: &str) -> IResult<&str, &str> {
-    let sym = map(consumed(many1(is_a("%_-="))), |(c,o)| c);
+    let sym = map(consumed(many1(is_a("%_-="))), |(c,_)| c);
     let alpha_or_sym = alt((alphanumeric1, sym));
     let shuffle = many1(alpha_or_sym);
     map(consumed(shuffle), |(c,_)|c)(i)

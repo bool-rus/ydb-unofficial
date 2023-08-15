@@ -250,9 +250,7 @@ impl<C: Credentials> YdbConnection<C> {
         self.session_id.read().unwrap().clone()
     }
     pub async fn close_session(&mut self) -> Result<(), YdbError> {
-        if let Some(session_id) = self.session_id() {
-            delete_session(&self.session_id, self.inner.clone()).await?;
-        }
+        delete_session(&self.session_id, self.inner.clone()).await?;
         Ok(())
     }
     #[doc(hidden)]
@@ -307,7 +305,6 @@ fn process_session_fail(
     session_ref: &Arc<RwLock<Option<String>>>,
 ) {
     use crate::generated::ydb::status_ids::StatusCode;
-    use tonic::Status;
     match code {
         StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
             *session_ref.write().unwrap() = None;

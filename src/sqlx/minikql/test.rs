@@ -3,35 +3,17 @@ use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
 use super::*;
 
 #[test]
-fn t_scal() {
-    match scalar("\"bgga \"asdnflksjdf \"") {
-        Ok(ok) => println!("ok: {ok:?}"),
-        Err(e) => println!("err: {e:?}"),
-    }
-}
-#[test]
-fn t0() {
+fn synt() {
     match val(r#"(
     (return ())
     )"#) { 
-        Ok((i, r)) => println!("ok: {r:?}"),
+        Ok((_, r)) => println!("ok: {r:?}"),
         Err(e) => println!("e: {e:?}"),
     }
 }
 
-
-#[test]
-fn test_find() {
-    let mut v = val(AST1).unwrap().1;
-    v.eval();
-    let r = v.find("return").unwrap();
-    println!("{r:?}");
-    let r = r.find("KqpPhysicalQuery").unwrap();
-}
-
-#[test]
-fn it_works() {
-    let mut v = val(AST4).unwrap().1;
+fn check(s: &str) {
+    let mut v = val(s).unwrap().1;
     v.eval();
 
     println!("{v:?}");
@@ -41,6 +23,23 @@ fn it_works() {
         let is_optional = if is_optional {"optional "} else {""};
         println!("{name}: {is_optional}{typ}");
     }
+}
+
+#[test]
+fn it_works1() {
+    check(AST1);
+}
+#[test]
+fn it_works2() {
+    check(AST2);
+}
+#[test]
+fn it_works3() {
+    check(AST3);
+}
+#[test]
+fn it_works4() {
+    check(AST4);
 }
 
 fn invoke_outputs<'a, 'b: 'a>(node: &'b Node<'a>) -> Option<Vec<(&'a str, &'a str, bool)>> {
