@@ -74,7 +74,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     where 'c: 'e {
         todo!()
     }
-
+    //TODO: спрятать под фичу
     fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
     where 'c: 'e { Box::pin( async move {
         let response = self.explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;

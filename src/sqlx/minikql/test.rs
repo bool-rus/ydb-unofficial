@@ -15,10 +15,8 @@ fn synt() {
 fn check(s: &str) {
     let mut v = val(s).unwrap().1;
     v.eval();
-
-    println!("{v:?}");
     let params = invoke_outputs(&v).unwrap();
-    println!("colunms:");
+    println!("columns:");
     for (name, typ, is_optional) in params {
         let is_optional = if is_optional {"optional "} else {""};
         println!("{name}: {is_optional}{typ}");
@@ -44,7 +42,6 @@ fn it_works4() {
 
 fn invoke_outputs<'a, 'b: 'a>(node: &'b Node<'a>) -> Option<Vec<(&'a str, &'a str, bool)>> {
     let outputs = node.find("return")?.find("KqpPhysicalQuery")?.find("KqpTxResultBinding")?.find("StructType")?.list()?;
-    println!("{outputs:?}");
     let result = outputs.into_iter().filter_map(|item| {
         let mut iter = item.list()?.into_iter();
         let mut is_optional = false;
@@ -57,7 +54,6 @@ fn invoke_outputs<'a, 'b: 'a>(node: &'b Node<'a>) -> Option<Vec<(&'a str, &'a st
             typ
         }.list()?.into_iter().next()?;
         let t = PrimitiveTypeId::from_str_name(&typ.text()?.to_ascii_uppercase());
-        println!("{t:?}");
         Some((name, typ.text()?, is_optional))
     }).collect();
     Some(result)

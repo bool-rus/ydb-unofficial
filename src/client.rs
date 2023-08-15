@@ -115,7 +115,7 @@ pub fn create_endpoint(uri: Uri) -> Endpoint {
 }
 
 
-#[allow(non_upper_case_globals)]
+//#[allow(non_upper_case_globals)]
 #[ctor::ctor]
 static BUILD_INFO: AsciiValue = concat!("ydb-unofficial/", env!("CARGO_PKG_VERSION")).try_into().unwrap();
 
