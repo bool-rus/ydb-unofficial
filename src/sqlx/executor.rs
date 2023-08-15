@@ -2,12 +2,12 @@ use futures::StreamExt;
 use futures::future::FutureExt;
 use sqlx_core::describe::Describe;
 use sqlx_core::executor::{Executor, Execute};
-use sqlx_core::Either;
+use sqlx_core::{Either, HashMap};
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
 use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
 use ydb_grpc_bindings::generated::ydb::table::transaction_control::TxSelector;
 use ydb_grpc_bindings::generated::ydb::table::transaction_settings::TxMode;
-use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, TransactionControl, TransactionSettings, ExplainDataQueryRequest};
+use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, TransactionControl, TransactionSettings, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
 
 use crate::YdbResponseWithResult;
 use crate::error::YdbError;
@@ -22,12 +22,16 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
 
     fn execute<'e, 'q: 'e, E: 'q>(mut self, query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {
-        let yql = query.sql().to_owned();
-        let query = Some(crate::generated::ydb::table::query::Query::YqlText(yql));
+        let query = if let Some(statement) = query.statement() {
+            Some(crate::generated::ydb::table::query::Query::Id(statement.query_id().to_owned()))
+        } else {
+            Some(crate::generated::ydb::table::query::Query::YqlText(query.sql().to_owned()))
+        };
         let query = Some(crate::generated::ydb::table::Query{query});
         let tx_control = Some(TransactionControl { 
             commit_tx: true, 
             tx_selector: Some(TxSelector::BeginTx(TransactionSettings { 
+                //TODO: продумать разные варианты TxMode
                 tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
             }))
         });
@@ -70,10 +74,16 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         Ok(rows.into_iter().next())
     })}
 
-    fn prepare_with<'e, 'q: 'e>( self, _sql: &'q str, _parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
-    where 'c: 'e {
-        todo!()
-    }
+    fn prepare_with<'e, 'q: 'e>(mut self, sql: &'q str, _parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e { Box::pin(async move {
+        let yql_text = sql.to_owned();
+        let response = self.prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()}).await?;
+        let PrepareQueryResult {query_id, parameters_types} = response.into_inner().result().map_err(YdbError::from)?;
+        let parameters = parameters_types.into();
+        let yql = sql.to_owned();
+        Ok(YdbStatement {query_id, yql, parameters})
+    })}
+
     //TODO: спрятать под фичу
     fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
     where 'c: 'e { Box::pin( async move {

@@ -40,26 +40,25 @@ impl<'a> HasArguments<'a> for Ydb {
     type ArgumentBuffer=YdbArgumentBuffer;
 }
 
-#[derive(Debug, Default)]
-pub struct YdbArguments;
+#[derive(Debug, Default, Clone)]
+pub struct YdbArguments(YdbArgumentBuffer);
 
 impl<'q> Arguments<'q> for YdbArguments {
     type Database = Ydb;
 
-    fn reserve(&mut self, additional: usize, size: usize) {
-        todo!()
+    fn reserve(&mut self, _additional: usize, _size: usize) {
+        //TODO: implement me
     }
 
     fn add<T>(&mut self, value: T)
-    where
-        T: 'q + Send + sqlx_core::encode::Encode<'q, Self::Database> + sqlx_core::types::Type<Self::Database> {
-        todo!()
+    where T: 'q + Send + sqlx_core::encode::Encode<'q, Ydb> + sqlx_core::types::Type<Ydb> {
+        let _ = value.encode(&mut self.0);
     }
 }
 
-impl<'a> IntoArguments<'a, Ydb> for YdbArguments {
+impl<'a> IntoArguments<'a, Ydb> for &YdbArguments {
     fn into_arguments(self) -> YdbArguments {
-        todo!()
+        self.clone()
     }
 }
 

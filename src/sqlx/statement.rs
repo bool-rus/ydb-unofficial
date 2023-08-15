@@ -1,12 +1,41 @@
-use sqlx_core::{statement::Statement, Either, query::Query};
+use sqlx_core::{statement::Statement, Either};
+use ydb_grpc_bindings::generated::ydb;
 
-use super::{Ydb, YdbTypeInfo, YdbColumn, YdbArguments, YdbRow};
+use super::{Ydb, YdbTypeInfo, YdbColumn, YdbArguments};
+
+const NO_COLUMNS: &[YdbColumn] = &[];
+
+#[derive(Debug, Clone)]
+pub(crate) struct NamedParameters {
+    names: Vec<String>,
+    types: Vec<YdbTypeInfo>,
+}
+
+impl From<std::collections::HashMap<String, ydb::Type>> for NamedParameters {
+    fn from(value: std::collections::HashMap<String, ydb::Type>) -> Self {
+        let cap = value.len();
+        let (names,types) = value.into_iter()
+        .filter_map(|(k,ty)|{Some((k, YdbTypeInfo::from(&ty.r#type?)))})
+        .fold((Vec::with_capacity(cap), Vec::with_capacity(cap)), |(mut names, mut types), (n,t)|{
+            names.push(n);
+            types.push(t);
+            (names, types)
+        });
+        Self{names, types}
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct YdbStatement {
-    yql: String,
-    parameters: Vec<YdbTypeInfo>,
-    columns: Vec<YdbColumn>,
+    pub (crate) query_id: String,
+    pub (crate) yql: String,
+    pub (crate) parameters: NamedParameters,
+}
+
+impl YdbStatement {
+    pub fn query_id(&self) -> &str {
+        &self.query_id
+    }
 }
 
 impl Statement<'_> for YdbStatement {
@@ -21,50 +50,13 @@ impl Statement<'_> for YdbStatement {
     }
 
     fn parameters(&self) -> Option<Either<&[YdbTypeInfo], usize>> {
-        Some(Either::Left(&self.parameters))
+        Some(Either::Left(&self.parameters.types))
     }
 
     fn columns(&self) -> &[YdbColumn] {
-        &self.columns
+        //TODO: определиться, зачем тут колонки
+        NO_COLUMNS
     }
 
-    fn query(&self) -> Query<'_, Ydb, YdbArguments> {
-        todo!()
-    }
-
-    fn query_with<'s, A>(&'s self, arguments: A) -> sqlx_core::query::Query<'s, Ydb, A>
-    where
-        A: sqlx_core::arguments::IntoArguments<'s, Ydb> {
-        todo!()
-    }
-
-    fn query_as<O>(
-        &self,
-    ) -> sqlx_core::query_as::QueryAs<'_, Ydb, O, YdbArguments>
-    where
-        O: for<'r> sqlx_core::from_row::FromRow<'r, YdbRow> {
-        todo!()
-    }
-
-    fn query_as_with<'s, O, A>(&'s self, arguments: A) -> sqlx_core::query_as::QueryAs<'s, Self::Database, O, A>
-    where
-        O: for<'r> sqlx_core::from_row::FromRow<'r, YdbRow>,
-        A: sqlx_core::arguments::IntoArguments<'s, Ydb> {
-        todo!()
-    }
-
-    fn query_scalar<O>(
-        &self,
-    ) -> sqlx_core::query_scalar::QueryScalar<'_, Ydb, O, YdbArguments>
-    where
-        (O,): for<'r> sqlx_core::from_row::FromRow<'r, YdbRow> {
-        todo!()
-    }
-
-    fn query_scalar_with<'s, O, A>(&'s self, arguments: A) -> sqlx_core::query_scalar::QueryScalar<'s, Ydb, O, A>
-    where
-        (O,): for<'r> sqlx_core::from_row::FromRow<'r, YdbRow>,
-        A: sqlx_core::arguments::IntoArguments<'s, Ydb> {
-        todo!()
-    }
+    sqlx_core::impl_statement_query!(YdbArguments);
 }
