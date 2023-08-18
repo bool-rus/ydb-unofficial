@@ -74,8 +74,8 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         Ok(rows.into_iter().next())
     })}
 
-    fn prepare_with<'e, 'q: 'e>(mut self, sql: &'q str, _parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
-    where 'c: 'e { Box::pin(async move {
+    fn prepare<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e {Box::pin(async move {
         let yql_text = sql.to_owned();
         let response = self.prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()}).await?;
         let PrepareQueryResult {query_id, parameters_types} = response.into_inner().result().map_err(YdbError::from)?;
@@ -83,31 +83,6 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         let yql = sql.to_owned();
         Ok(YdbStatement {query_id, yql, parameters})
     })}
-
-    //TODO: спрятать под фичу
-    fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
-    where 'c: 'e { Box::pin( async move {
-        let response = self.explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
-        let result = response.into_inner().result().map_err(YdbError::from)?;
-        let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
-        node.eval();
-        let outputs = invoke_outputs(&node).unwrap_or_default();
-        let (columns, nullable) = outputs.into_iter().fold((vec![], vec![]), |(mut cols, mut nulls), (ordinal, name, typ, optional)|{
-            nulls.push(Some(optional));
-            let name = name.to_owned();
-            let type_info = if let Some(t) = PrimitiveTypeId::from_str_name(&typ.to_ascii_uppercase()) {
-                YdbTypeInfo::Primitive(t)
-            } else {
-                YdbTypeInfo::Unknown
-            };
-            cols.push(YdbColumn{ ordinal, name, type_info });
-            (cols, nulls)
-        });
-        //TODO: implement parameters invoking
-        let parameters = None;
-        Ok(Describe { columns, parameters, nullable })
-    })}
-
 
     fn fetch_all<'e, 'q: 'e, E: 'q>( self, query: E ) -> BoxFuture<'e, Result<Vec<YdbRow>, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {Box::pin ( async move {
@@ -145,10 +120,33 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         row.ok_or(sqlx_core::Error::RowNotFound)
     })}
 
-    fn prepare<'e, 'q: 'e>(self, query: &'q str) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
-    where 'c: 'e {
-        self.prepare_with(query, &[])
-    }
+    fn prepare_with<'e, 'q: 'e>(self, sql: &'q str, _parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e { self.prepare(sql) }
+
+    //TODO: спрятать под фичу
+    fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
+    where 'c: 'e { Box::pin( async move {
+        let response = self.explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
+        let result = response.into_inner().result().map_err(YdbError::from)?;
+        let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
+        node.eval();
+        let outputs = invoke_outputs(&node).unwrap_or_default();
+        let (columns, nullable) = outputs.into_iter().fold((vec![], vec![]), |(mut cols, mut nulls), (ordinal, name, typ, optional)|{
+            nulls.push(Some(optional));
+            let name = name.to_owned();
+            let type_info = if let Some(t) = PrimitiveTypeId::from_str_name(&typ.to_ascii_uppercase()) {
+                YdbTypeInfo::Primitive(t)
+            } else {
+                YdbTypeInfo::Unknown
+            };
+            cols.push(YdbColumn{ ordinal, name, type_info });
+            (cols, nulls)
+        });
+        //TODO: implement parameters invoking
+        let parameters = None;
+        Ok(Describe { columns, parameters, nullable })
+    })}
+
 
 }
 
