@@ -9,6 +9,7 @@ mod types;
 mod minikql;
 
 mod statement;
+mod transaction;
 
 type YdbConnection = crate::YdbConnection<crate::auth::UpdatableToken>;
 //pub use query::*;

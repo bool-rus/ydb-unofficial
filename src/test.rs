@@ -1,6 +1,5 @@
-use std::{env::var, error::Error};
+use std::{env::var, error::Error, sync::RwLock};
 
-use tokio::fs::File;
 use ydb_grpc_bindings::generated::ydb::table::{PrepareDataQueryRequest, ExplainDataQueryRequest, TransactionControl, transaction_control::TxSelector, TransactionSettings, transaction_settings::TxMode, ExecuteDataQueryRequest};
 
 use crate::{auth::sa::ServiceAccountKey, YdbConnection, client::create_endpoint, YdbResponseWithResult};
@@ -43,7 +42,20 @@ async fn select() -> Result<(), Box<dyn Error>> {
     let mut conn = YdbConnection::new(channel, db_name.as_str().try_into()?, creds);
     let mut table = conn.table().await.unwrap();
 
-    let yql = "select * from test_decl;".to_owned();
+    let yql = r#"
+DECLARE $x AS String;
+DECLARE $x1 AS String;
+DECLARE $y AS String?;
+DECLARE $z AS List<String>;
+
+SELECT $x, $x1, $y, $z;
+    "#.to_owned();
+
+    let response = table.explain_data_query(ExplainDataQueryRequest { yql_text: yql.clone(), ..Default::default()}).await?;
+    let result = response.into_inner().result()?;
+    println!("query_plan: {}", result.query_plan);
+    println!("query_ast: {}", result.query_ast);
+
     let query = Some(crate::generated::ydb::table::query::Query::YqlText(yql));
     let query = Some(crate::generated::ydb::table::Query{query});
 

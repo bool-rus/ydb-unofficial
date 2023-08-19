@@ -28,13 +28,6 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
             Some(crate::generated::ydb::table::query::Query::YqlText(query.sql().to_owned()))
         };
         let query = Some(crate::generated::ydb::table::Query{query});
-        let tx_control = Some(TransactionControl { 
-            commit_tx: true, 
-            tx_selector: Some(TxSelector::BeginTx(TransactionSettings { 
-                //TODO: продумать разные варианты TxMode
-                tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
-            }))
-        });
         Box::pin(async move {
             let response = self.execute_data_query(ExecuteDataQueryRequest{ query, tx_control, ..Default::default()}).await?;
             let result = response.into_inner().result().map_err(YdbError::from)?;

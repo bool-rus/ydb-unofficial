@@ -140,6 +140,7 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
+    tx_control: Option<TransactionControl>,
 }
 
 
@@ -192,7 +193,14 @@ impl<C: Credentials> YdbConnection<C> {
         let inner = tower::ServiceBuilder::new()
             .layer(tonic::service::interceptor(interceptor))
             .service(channel);
-        YdbConnection{inner, session_id: Arc::new(RwLock::new(None))}
+        let tx_control = Some(TransactionControl { 
+            commit_tx: true, 
+            tx_selector: Some(TxSelector::BeginTx(TransactionSettings { 
+                //TODO: продумать разные варианты TxMode
+                tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
+            }))
+        });
+        YdbConnection{inner, session_id: Arc::new(RwLock::new(None)), tx_control}
     }
     /// Creates discovery service client
     /// 
@@ -354,6 +362,10 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
     pub async fn stream_read_table(&mut self, mut req: ReadTableRequest) -> Result<tonic::Response<tonic::codec::Streaming<ReadTableResponse>>, tonic::Status> {
         req.session_id = self.session_id.clone();
         self.client.stream_read_table(req).await
+    }
+    pub async fn execute_data_query_with_tx(&mut self, mut req: ExecuteDataQueryRequest) -> ExecuteDataQueryResponse {
+        req.tx_control = self.client.tx_control.clone();
+        self.execute_data_query(req).await
     }
 }
 
