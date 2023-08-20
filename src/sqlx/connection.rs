@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use super::database::Ydb;
-use sqlx_core::acquire::Acquire;
+use sqlx_core::transaction::Transaction;
+use sqlx_core::pool::MaybePoolConnection;
 use tonic::codegen::futures_core::future::BoxFuture;
 use sqlx_core::connection::{ConnectOptions as XConnectOptions, Connection};
 use crate::AsciiValue;
@@ -51,7 +52,6 @@ impl XConnectOptions for ConnectOptions {
     }
 }
 
-
 impl Connection for YdbConnection {
     type Database = Ydb;
 
@@ -73,14 +73,12 @@ impl Connection for YdbConnection {
         todo!()
     }
 
-    fn begin(&mut self) -> BoxFuture<'_, Result<sqlx_core::transaction::Transaction<'_, Self::Database>, sqlx_core::Error>>
-    where
-        Self: Sized {
-        todo!()
+    fn begin(&mut self) -> BoxFuture<'_, Result<Transaction<'_, Ydb>, sqlx_core::Error>> where Self: Sized {
+        Transaction::begin(MaybePoolConnection::Connection(self))
     }
     fn shrink_buffers(&mut self) {}
     fn flush(&mut self) -> BoxFuture<'_, Result<(), sqlx_core::Error>> {
-        Box::pin(async {Ok(())})
+        Box::pin(futures::future::ok(()))
     }
     fn should_flush(&self) -> bool {false}
 }

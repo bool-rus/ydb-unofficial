@@ -1,4 +1,3 @@
-mod dumb;
 mod entities;
 mod database;
 mod error;
@@ -16,4 +15,5 @@ type YdbConnection = crate::YdbConnection<crate::auth::UpdatableToken>;
 pub use database::*;
 pub use entities::*;
 pub use statement::*;
+pub use transaction::*;
 pub use super::error::YdbError;

@@ -15,6 +15,7 @@ pub enum YdbError {
     Ydb(ErrWithOperation),
     #[error("Empty response")]
     EmptyResponse,
+    #[cfg(feature = "sqlx")]
     #[error("Error on decode ast")]
     DecodeAst,
 }

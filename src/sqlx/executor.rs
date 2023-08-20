@@ -2,12 +2,10 @@ use futures::StreamExt;
 use futures::future::FutureExt;
 use sqlx_core::describe::Describe;
 use sqlx_core::executor::{Executor, Execute};
-use sqlx_core::{Either, HashMap};
+use sqlx_core::Either;
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
 use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
-use ydb_grpc_bindings::generated::ydb::table::transaction_control::TxSelector;
-use ydb_grpc_bindings::generated::ydb::table::transaction_settings::TxMode;
-use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, TransactionControl, TransactionSettings, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
+use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
 
 use crate::YdbResponseWithResult;
 use crate::error::YdbError;
@@ -29,7 +27,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         };
         let query = Some(crate::generated::ydb::table::Query{query});
         Box::pin(async move {
-            let response = self.execute_data_query(ExecuteDataQueryRequest{ query, tx_control, ..Default::default()}).await?;
+            let response = self.execute_data_query_with_tx(ExecuteDataQueryRequest{ query, ..Default::default()}).await?;
             let result = response.into_inner().result().map_err(YdbError::from)?;
             Ok(result.into())
         })

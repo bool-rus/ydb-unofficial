@@ -5,7 +5,6 @@ use ydb_grpc_bindings::generated::ydb;
 
 
 use super::*;
-use dumb::Dumb;
 
 pub type YdbArgumentBuffer = sqlx_core::HashMap<String, ydb::TypedValue>;
 
@@ -15,7 +14,7 @@ pub struct Ydb;
 impl Database for Ydb {
     type Connection = YdbConnection;
 
-    type TransactionManager = Dumb<Self>;
+    type TransactionManager = YdbTransactionManager;
 
     type Row = YdbRow;
 
