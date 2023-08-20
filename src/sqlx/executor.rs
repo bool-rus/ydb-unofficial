@@ -4,16 +4,17 @@ use sqlx_core::describe::Describe;
 use sqlx_core::executor::{Executor, Execute};
 use sqlx_core::Either;
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
-use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
-use ydb_grpc_bindings::generated::ydb::table::{ExecuteDataQueryRequest, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
+use ydb_grpc_bindings::generated::ydb;
+use ydb::r#type::PrimitiveTypeId;
+use ydb::table::{ExecuteDataQueryRequest, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
 
-use crate::YdbResponseWithResult;
+use crate::{YdbResponseWithResult, YdbTransaction};
 use crate::error::YdbError;
-use crate::{client::TableClientWithSession, auth::UpdatableToken};
+use crate::auth::UpdatableToken;
 
 use super::minikql::invoke_outputs;
 use super::{Ydb, YdbRow, YdbTypeInfo, YdbStatement, YdbQueryResult, YdbColumn};
-type YdbExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
+type YdbExecutor<'c> = YdbTransaction<'c, UpdatableToken>;
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
@@ -27,7 +28,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         };
         let query = Some(crate::generated::ydb::table::Query{query});
         Box::pin(async move {
-            let response = self.execute_data_query_with_tx(ExecuteDataQueryRequest{ query, ..Default::default()}).await?;
+            let response = self.execute_data_query(ExecuteDataQueryRequest{ query, ..Default::default()}).await?;
             let result = response.into_inner().result().map_err(YdbError::from)?;
             Ok(result.into())
         })
@@ -68,7 +69,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     fn prepare<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
     where 'c: 'e {Box::pin(async move {
         let yql_text = sql.to_owned();
-        let response = self.prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()}).await?;
+        let response = self.table_client().prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()}).await?;
         let PrepareQueryResult {query_id, parameters_types} = response.into_inner().result().map_err(YdbError::from)?;
         let parameters = parameters_types.into();
         let yql = sql.to_owned();
@@ -117,7 +118,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     //TODO: спрятать под фичу
     fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
     where 'c: 'e { Box::pin( async move {
-        let response = self.explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
+        let response = self.table_client().explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
         let result = response.into_inner().result().map_err(YdbError::from)?;
         let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
         node.eval();

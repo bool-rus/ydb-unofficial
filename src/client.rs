@@ -140,7 +140,6 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
 pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
-    tx_control: TransactionControl,
 }
 
 
@@ -178,16 +177,6 @@ impl YdbConnection<String> {
     }
 }
 
-fn default_tx_control() -> TransactionControl {
-    TransactionControl { 
-        commit_tx: true, 
-        tx_selector: Some(TxSelector::BeginTx(TransactionSettings { 
-            //TODO: продумать разные варианты TxMode
-            tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
-        }))
-    }
-}
-
 impl<C: Credentials> YdbConnection<C> {
     /// YdbConnection constructor
     /// 
@@ -203,8 +192,7 @@ impl<C: Credentials> YdbConnection<C> {
         let inner = tower::ServiceBuilder::new()
             .layer(tonic::service::interceptor(interceptor))
             .service(channel);
-        let tx_control = default_tx_control();
-        YdbConnection{inner, session_id: Arc::new(RwLock::new(None)), tx_control}
+        YdbConnection{inner, session_id: Arc::new(RwLock::new(None))}
     }
     /// Creates discovery service client
     /// 
@@ -247,7 +235,6 @@ impl<C: Credentials> YdbConnection<C> {
         let session_id = if let Some(session_id) = self.session_id() {
             session_id
         } else {
-            self.tx_control = default_tx_control();
             let mut client = TableServiceClient::new(&mut self.inner);
             let response = client.create_session(CreateSessionRequest::default()).await?;
             let session_id = response.into_inner().result()?.session_id;
@@ -256,9 +243,8 @@ impl<C: Credentials> YdbConnection<C> {
             session_id
         };
         let session_ref = self.session_id.clone();
-        let tx_control = self.tx_control.clone();
         let client = TableServiceClient::new(self);
-        Ok(TableClientWithSession {session_ref, session_id, client, tx_control })
+        Ok(TableClientWithSession {session_ref, session_id, client })
     }
     fn session_id(&self) -> Option<String> {
         self.session_id.read().unwrap().clone()
@@ -270,32 +256,6 @@ impl<C: Credentials> YdbConnection<C> {
     #[doc(hidden)]
     pub fn close_session_hard(self) {
         *self.session_id.write().unwrap() = None;
-    }
-    pub async fn begin_tx(&mut self) -> Result<(), YdbError> {
-        let table_client: TableClientWithSession<'_, C> = self.table().await?;
-        let tx = YdbTransaction::create(table_client).await?;
-        self.tx_control = tx.tx_control;
-        Ok(())
-    }
-    pub async fn commit_tx(&mut self) -> Result<(), YdbError> {
-        if self.session_id().is_none() {
-            return Ok(()) //TODO: maybe Err?
-        };
-        let mut tx_control = default_tx_control();
-        std::mem::swap(&mut tx_control, &mut self.tx_control);
-        let client: TableClientWithSession<'_, C> = self.table().await?;
-        YdbTransaction {client, tx_control}.commit_inner().await?;
-        Ok(())
-    }
-    pub async fn rollback_tx(&mut self) -> Result<(), YdbError> {
-        if self.session_id().is_none() {
-            return Ok(()) //TODO: maybe Err?
-        };
-        let mut tx_control = default_tx_control();
-        std::mem::swap(&mut tx_control, &mut self.tx_control);
-        let client: TableClientWithSession<'_, C> = self.table().await?;
-        YdbTransaction {client, tx_control}.rollback_inner().await?;
-        Ok(())
     }
 }
 
@@ -337,7 +297,6 @@ pub struct TableClientWithSession<'a, C: Credentials> {
     //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbConnection не достать
     session_ref: Arc<RwLock<Option<String>>>, 
     session_id: String,
-    tx_control: TransactionControl,
     client: TableServiceClient<&'a mut YdbConnection<C>>,
 }
 
@@ -396,13 +355,10 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         req.session_id = self.session_id.clone();
         self.client.stream_read_table(req).await
     }
-    pub async fn execute_data_query_with_tx(&mut self, mut req: ExecuteDataQueryRequest) -> Result<tonic::Response<ExecuteDataQueryResponse>, YdbError> {
-        req.tx_control = Some(self.tx_control.clone());
-        self.execute_data_query(req).await
-    }
 }
 
 /// [`TableServiceClient`] with active session and transaction
+#[derive(Debug)]
 pub struct YdbTransaction<'a, C: Credentials> {
     tx_control: TransactionControl,
     //TODO: переделать на &mut
@@ -428,6 +384,12 @@ pub struct YdbTransaction<'a, C: Credentials> {
 /// # }
 /// ```
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
+    pub(crate) fn new(client: TableClientWithSession<'a, C>, tx_control: TransactionControl) -> Self {
+        Self {client, tx_control}
+    }
+    pub(crate) fn table_client(&mut self) -> &mut TableClientWithSession<'a, C> {
+        &mut self.client
+    }
     /// Method that just creates ReadWrite transaction 
     pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, crate::error::YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
@@ -443,7 +405,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
             panic!("looks like a bug")
         }
     }
-    async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
+    pub(crate) async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.commit_transaction(CommitTransactionRequest {tx_id, ..Default::default()}).await?;
         let result = response.into_inner().result()?; //что там может быть полезного?
@@ -455,7 +417,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         let result = self.commit_inner().await;
         (self.client, result)
     }
-    async fn rollback_inner(&mut self) -> Result<(), YdbError> {
+    pub (crate) async fn rollback_inner(&mut self) -> Result<(), YdbError> {
         let tx_id = self.invoke_tx_id();
         self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
         Ok(())

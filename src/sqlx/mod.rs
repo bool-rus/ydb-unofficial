@@ -8,12 +8,10 @@ mod types;
 mod minikql;
 
 mod statement;
-mod transaction;
 
-type YdbConnection = crate::YdbConnection<crate::auth::UpdatableToken>;
 //pub use query::*;
 pub use database::*;
 pub use entities::*;
 pub use statement::*;
-pub use transaction::*;
+pub use connection::*;
 pub use super::error::YdbError;

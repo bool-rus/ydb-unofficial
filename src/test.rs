@@ -1,5 +1,6 @@
-use std::{env::var, error::Error, sync::RwLock};
+use std::{env::var, error::Error, sync::RwLock, ops::DerefMut, str::FromStr};
 
+use sqlx_core::connection::ConnectOptions;
 use ydb_grpc_bindings::generated::ydb::table::{PrepareDataQueryRequest, ExplainDataQueryRequest, TransactionControl, transaction_control::TxSelector, TransactionSettings, transaction_settings::TxMode, ExecuteDataQueryRequest};
 
 use crate::{auth::sa::ServiceAccountKey, YdbConnection, client::create_endpoint, YdbResponseWithResult};
@@ -65,6 +66,9 @@ SELECT $x, $x1, $y, $z;
             tx_mode: Some(TxMode::SerializableReadWrite(Default::default())) 
         })) 
     });
+    let pool = sqlx_core::pool::Pool::<crate::sqlx::Ydb>::connect_with(crate::sqlx::YdbConnectOptions::from_str("")?).await?;
+    let tx = pool.begin().await?;
+    let mut conn = pool.acquire().await?.executor().await?;
     let response = table.execute_data_query(ExecuteDataQueryRequest{query, tx_control, collect_stats: 2, ..Default::default()}).await?;
     tokio::fs::write("test/example.protobytes", response.get_ref().operation.as_ref().unwrap().result.as_ref().unwrap().value.as_slice()).await?;
     let result = response.get_ref().result()?;
