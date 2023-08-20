@@ -29,11 +29,19 @@ pub struct YdbConnectOptions {
     creds: UpdatableToken,
 }
 
+impl YdbConnectOptions {
+    pub fn with_creds(mut self, creds: UpdatableToken) -> Self {
+        self.creds = creds;
+        self
+    }
+}
+
 impl FromStr for YdbConnectOptions {
     type Err = sqlx_core::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        let url = sqlx_core::Url::try_from(s).map_err(|e|sqlx_core::Error::Configuration(format!("Cannot parse connection string as url: {e}").into()))?;
+        Self::from_url(&url)
     }
 }
 
@@ -51,7 +59,38 @@ impl ConnectOptions for YdbConnectOptions {
     type Connection = YdbConnection;
 
     fn from_url(url: &sqlx_core::Url) -> Result<Self, sqlx_core::Error> {
-        todo!()
+        use sqlx_core::Error::Configuration as ConfErr;
+        let ssl = match url.scheme() {
+            "ydb" | "grpc" => false,
+            "ydbs" | "grpcs" => true,
+            _ => return Err(ConfErr("Unknown scheme".into()))
+        };
+        let host = url.host_str().ok_or(ConfErr("no host".into()))?.into();
+        let port = url.port().ok_or(ConfErr("no port".into()))?;
+        let db_name = url.path().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into())).unwrap();
+        let endpoint = YdbEndpoint { ssl, host, port, load_factor: 0.0 };
+        let mut creds = UpdatableToken::new("".try_into().unwrap());
+        for (k,v) in url.query_pairs() {
+            match k.as_ref() {
+                "token" => {
+                    let token = v.as_ref().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
+                    creds = UpdatableToken::new(token);
+                    break;
+                }
+                #[cfg(feature = "auth-sa")]
+                "sa-key" => {
+                    let file = std::fs::File::open(v.as_ref()).map_err(|e|ConfErr(format!("cannot open sa file: {e}").into()))?;
+                    use crate::auth::sa::*;
+                    let key: ServiceAccountKey = serde_json::from_reader(file).map_err(|e|ConfErr(format!("cannot parse sa file: {e}").into()))?;
+                    creds = futures::executor::block_on(async {
+                        ServiceAccountCredentials::create(key).await
+                    }).map_err(YdbError::from)?.into();
+                    break;
+                }
+                _ => {}
+            }
+        };
+        Ok(Self{endpoint, db_name, creds})
     }
 
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, sqlx_core::Error>>
