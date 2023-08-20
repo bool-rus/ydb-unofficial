@@ -6,7 +6,7 @@
 //! # async fn main() {
 //! let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
 //! let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
-//! let ep = ydb_unofficial::pool::YdbEndpoint {ssl: true, host: "ydb.serverless.yandexcloud.net".to_owned(), port: 2135, load_factor: 0.0};
+//! let ep = ydb_unofficial::client::YdbEndpoint {ssl: true, host: "ydb.serverless.yandexcloud.net".to_owned(), port: 2135, load_factor: 0.0};
 //! let pool = ydb_unofficial::pool::YdbPoolBuilder::new(creds, db_name.try_into().unwrap(), ep).build().unwrap();
 //! let mut conn = pool.get().await.unwrap();
 //! let mut table_client = conn.table();

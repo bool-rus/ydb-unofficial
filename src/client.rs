@@ -6,7 +6,7 @@
 //! # async fn main() {
 //!     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
 //!     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
-//!      let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+//!     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
 //! 
 //!     // how you can create service
 //!     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());

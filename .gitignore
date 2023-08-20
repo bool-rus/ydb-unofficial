@@ -1,4 +1,5 @@
 /target
+/test/example.protobytes
 test-env
 .vscode
 .env
