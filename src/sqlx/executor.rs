@@ -19,8 +19,9 @@ type YdbExecutor<'c> = YdbTransaction<'c, UpdatableToken>;
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
 
-    fn execute<'e, 'q: 'e, E: 'q>(mut self, query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
+    fn execute<'e, 'q: 'e, E: 'q>(mut self, mut query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {
+        let parameters = query.take_arguments().map(|a|a.0).unwrap_or_default();
         let query = if let Some(statement) = query.statement() {
             Some(crate::generated::ydb::table::query::Query::Id(statement.query_id().to_owned()))
         } else {
@@ -28,7 +29,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         };
         let query = Some(crate::generated::ydb::table::Query{query});
         Box::pin(async move {
-            let response = self.execute_data_query(ExecuteDataQueryRequest{ query, ..Default::default()}).await?;
+            let response = self.execute_data_query(ExecuteDataQueryRequest{ query, parameters, ..Default::default()}).await.unwrap();
             let result = response.into_inner().result().map_err(YdbError::from)?;
             Ok(result.into())
         })

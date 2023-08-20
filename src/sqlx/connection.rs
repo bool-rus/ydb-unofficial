@@ -45,6 +45,20 @@ impl FromStr for YdbConnectOptions {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_conn_options_from_str() {
+    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/some-anfslndundf908/234ndfnsdkjf").unwrap();
+    //println!("options: {options:?}");
+    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?token=some_token").unwrap();
+    //println!("options with token: {options:?}");
+    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?sa-key=test-env/authorized_key.json").unwrap();
+    //println!("options with sa-key: {options:?}");
+    let mut conn = options.connect().await.unwrap();
+    let executor = conn.executor().await.unwrap();
+    let row: (i32,) = sqlx_core::query_as::query_as("declare $one as Int32; select $one+$one as sum;").bind(("$one",1)).fetch_one(executor).await.unwrap();
+    assert_eq!(row.0, 2);
+}
+
 fn default_tx_control() -> TransactionControl {
     TransactionControl { 
         commit_tx: true, 
@@ -82,9 +96,12 @@ impl ConnectOptions for YdbConnectOptions {
                     let file = std::fs::File::open(v.as_ref()).map_err(|e|ConfErr(format!("cannot open sa file: {e}").into()))?;
                     use crate::auth::sa::*;
                     let key: ServiceAccountKey = serde_json::from_reader(file).map_err(|e|ConfErr(format!("cannot parse sa file: {e}").into()))?;
-                    creds = futures::executor::block_on(async {
-                        ServiceAccountCredentials::create(key).await
-                    }).map_err(YdbError::from)?.into();
+                    creds = tokio::task::block_in_place(||{
+                        futures::executor::block_on(async {
+                            ServiceAccountCredentials::create(key).await
+                        })
+                    })
+                    .map_err(YdbError::from)?.into();
                     break;
                 }
                 _ => {}
@@ -95,11 +112,11 @@ impl ConnectOptions for YdbConnectOptions {
 
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, sqlx_core::Error>>
     where
-        Self::Connection: Sized {
+        Self::Connection: Sized { //TODO: реализовать подключение к разным эндпойнтам из discovery (чтобы pool подключался как надо)
         let channel = self.endpoint.make_endpoint().connect_lazy();
         let inner = crate::YdbConnection::new(channel, self.db_name.clone(), self.creds.clone());
         let tx_control = default_tx_control();
-        Box::pin(async move{
+        Box::pin(async move {
             Ok(YdbConnection { inner, options: self.clone(), tx_control })
         })
     }
@@ -146,7 +163,7 @@ impl Connection for YdbConnection {
 
 impl YdbConnection {
     pub async fn executor(&mut self) -> Result<YdbTransaction<'_, UpdatableToken>, YdbError> {
-        let table = self.inner.table().await?;
+        let table = self.inner.table().await.unwrap();
         Ok(YdbTransaction::new(table, self.tx_control.clone()))
     }
 }

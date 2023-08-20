@@ -6,7 +6,7 @@ use ydb_grpc_bindings::generated::ydb;
 
 use super::*;
 
-pub type YdbArgumentBuffer = sqlx_core::HashMap<String, ydb::TypedValue>;
+pub type YdbArgumentBuffer = std::collections::HashMap<String, ydb::TypedValue>;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Ydb;
@@ -40,7 +40,7 @@ impl<'a> HasArguments<'a> for Ydb {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct YdbArguments(YdbArgumentBuffer);
+pub struct YdbArguments(pub(crate) YdbArgumentBuffer);
 
 impl<'q> Arguments<'q> for YdbArguments {
     type Database = Ydb;
@@ -58,6 +58,12 @@ impl<'q> Arguments<'q> for YdbArguments {
 impl<'a> IntoArguments<'a, Ydb> for &YdbArguments {
     fn into_arguments(self) -> YdbArguments {
         self.clone()
+    }
+}
+
+impl IntoArguments<'_, Ydb> for YdbArguments {
+    fn into_arguments(self) -> YdbArguments {
+        self
     }
 }
 

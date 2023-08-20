@@ -34,6 +34,12 @@ macro_rules! ydb_type {
             }
         }
 
+        impl<S: ToString + Clone> Type<Ydb> for (S, $t) {
+            fn type_info() -> YdbTypeInfo {
+                YdbTypeInfo::Primitive(PrimitiveTypeId::$info)
+            }
+        }
+        
         impl<'q, S: ToString + Clone> Encode<'q, Ydb> for (S, $t) {
             fn encode_by_ref(&self, buf: &mut YdbArgumentBuffer) -> sqlx_core::encode::IsNull {
                 let value = ydb::Value {
