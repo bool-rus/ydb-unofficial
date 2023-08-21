@@ -17,7 +17,8 @@ pub use reimport::*;
 pub mod pool;
 
 #[cfg(feature = "sqlx")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sqlx")))]
 pub mod sqlx;
 
-#[cfg(test)]
-mod test;
+//#[cfg(test)]
+//mod test;

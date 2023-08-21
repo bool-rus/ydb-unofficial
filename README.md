@@ -21,8 +21,19 @@ There is an alternative of [`ydb`]
 - [x] Service account key authentication
 - [ ] Metadata authentication
 - [ ] Query helpers (a lot of)
-- [ ] Connection string 
+- [x] Connection string 
 - [ ] [`sqlx`] integration
+    - [x] connection 
+    - [x] binding parameters
+    - [x] preparing statements
+    - [x] transaction manager
+    - [x] DML (data) operations
+    - [ ] DDL (scheme) operations
+    - [x] primitive types (bool, i8, i32, i64, u8, u32, u64, f32, f64, Vec<u8>, String)
+    - [ ] Decimal type
+    - [ ] connection pool balancing for discovery
+    - [ ] compile-time checked queries
+    - [ ] migrations
 
 [`deadpool`]: https://crates.io/crates/deadpool
 [`sqlx`]: https://crates.io/crates/sqlx
