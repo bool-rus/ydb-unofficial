@@ -14,9 +14,8 @@ mod error;
 /// use std::str::FromStr;
 /// let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?sa-key=test-env/authorized_key.json").unwrap();
 /// let mut conn = options.connect().await.unwrap();
-/// let executor = conn.executor().await.unwrap();
 /// let row: (i32,) = sqlx::query_as("declare $one as Int32; select $one+$one as sum;").bind(("$one",1)).fetch_one(
-///     conn.executor().await.unwrap()
+///     conn.executor().unwrap()
 /// ).await.unwrap();
 /// assert_eq!(row.0, 2);
 /// 

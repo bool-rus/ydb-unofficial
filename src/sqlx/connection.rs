@@ -54,7 +54,7 @@ async fn test_conn_options_from_str() {
     let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?sa-key=test-env/authorized_key.json").unwrap();
     //println!("options with sa-key: {options:?}");
     let mut conn = options.connect().await.unwrap();
-    let executor = conn.executor().await.unwrap();
+    let executor = conn.executor().unwrap();
     let row: (i32,) = sqlx_core::query_as::query_as("declare $one as Int32; select $one+$one as sum;").bind(("$one",1)).fetch_one(executor).await.unwrap();
     assert_eq!(row.0, 2);
 }
@@ -114,9 +114,10 @@ impl ConnectOptions for YdbConnectOptions {
     where
         Self::Connection: Sized { //TODO: реализовать подключение к разным эндпойнтам из discovery (чтобы pool подключался как надо)
         let channel = self.endpoint.make_endpoint().connect_lazy();
-        let inner = crate::YdbConnection::new(channel, self.db_name.clone(), self.creds.clone());
+        let mut inner = crate::YdbConnection::new(channel, self.db_name.clone(), self.creds.clone());
         let tx_control = default_tx_control();
         Box::pin(async move {
+            let _ = inner.table().await?;
             Ok(YdbConnection { inner, options: self.clone(), tx_control })
         })
     }
@@ -147,9 +148,11 @@ impl Connection for YdbConnection {
         Box::pin(async {Ok(())})
     }
 
-    fn ping(&mut self) -> BoxFuture<'_, Result<(), sqlx_core::Error>> {
-        todo!()
-    }
+    fn ping(&mut self) -> BoxFuture<'_, Result<(), sqlx_core::Error>> { Box::pin( async {
+        self.inner.table() //коль скоро мы в асинхронной функции, можем и восстановить сессию. Поэтому table()
+            .await?.keep_alive(Default::default()).await?;
+        Ok(())
+    })}
 
     fn begin(&mut self) -> BoxFuture<'_, Result<Transaction<'_, Ydb>, sqlx_core::Error>> where Self: Sized {
         Transaction::begin(MaybePoolConnection::Connection(self))
@@ -162,9 +165,16 @@ impl Connection for YdbConnection {
 }
 
 impl YdbConnection {
-    pub async fn executor(&mut self) -> Result<YdbTransaction<'_, UpdatableToken>, YdbError> {
-        let table = self.inner.table().await.unwrap();
+    pub fn executor(&mut self) -> Result<YdbTransaction<'_, UpdatableToken>, YdbError> {
+        let table = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
         Ok(YdbTransaction::new(table, self.tx_control.clone()))
+    }
+    /// Reconnect to Ydb if received [YdbError::NoSession] received
+    /// Sometimes Ydb service can invalidate connection with Session. An if you use single connection, you need to reconnect them
+    pub async fn reconnect(&mut self) -> Result<(), sqlx_core::Error> {
+        let conn = self.options.connect().await?;
+        *self = conn;
+        Ok(())
     }
 }
 
@@ -182,13 +192,13 @@ impl TransactionManager for YdbTransactionManager {
     })}
 
     fn commit(conn: &mut YdbConnection) -> BoxFuture<'_, Result<(), sqlx_core::Error>> { Box::pin(async { 
-        conn.executor().await?.commit_inner().await?;
+        conn.executor()?.commit_inner().await?;
         conn.tx_control = default_tx_control();
         Ok(())
     })}
 
     fn rollback(conn: &mut YdbConnection) -> BoxFuture<'_, Result<(), sqlx_core::Error>> { Box::pin(async {
-        conn.executor().await?.rollback_inner().await?;
+        conn.executor()?.rollback_inner().await?;
         conn.tx_control = default_tx_control();
         Ok(())
     })}

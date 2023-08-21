@@ -246,6 +246,11 @@ impl<C: Credentials> YdbConnection<C> {
         let client = TableServiceClient::new(self);
         Ok(TableClientWithSession {session_ref, session_id, client })
     }
+    pub fn table_if_ready(&mut self) -> Option<TableClientWithSession<C>> {
+        let session_id = self.session_id()?;
+        let session_ref = self.session_id.clone();
+        Some(TableClientWithSession {session_ref, session_id, client: TableServiceClient::new(self) })
+    }
     fn session_id(&self) -> Option<String> {
         self.session_id.read().unwrap().clone()
     }
