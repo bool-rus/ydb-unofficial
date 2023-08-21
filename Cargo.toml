@@ -48,4 +48,3 @@ serde_json      = { version = "1.0.102",    optional = true }
 
 [dev-dependencies]
 tokio = {version = "1.29.1", features = ["full"]}
-sqlx = "=0.7.1" #TODO: сделать pelude в crate::sqlx

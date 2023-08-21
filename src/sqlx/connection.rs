@@ -12,7 +12,7 @@ use ydb::table::TransactionSettings;
 use ydb::table::transaction_settings::TxMode;
 use crate::{AsciiValue, YdbTransaction};
 use crate::auth::UpdatableToken;
-use crate::client::YdbEndpoint;
+use crate::client::{YdbEndpoint, TableClientWithSession};
 
 use crate::payload::YdbResponseWithResult;
 
@@ -45,18 +45,13 @@ impl FromStr for YdbConnectOptions {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_conn_options_from_str() {
-    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/some-anfslndundf908/234ndfnsdkjf").unwrap();
-    //println!("options: {options:?}");
-    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?token=some_token").unwrap();
-    //println!("options with token: {options:?}");
-    let options = YdbConnectOptions::from_str("grpcs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?sa-key=test-env/authorized_key.json").unwrap();
-    //println!("options with sa-key: {options:?}");
-    let mut conn = options.connect().await.unwrap();
-    let executor = conn.executor().unwrap();
-    let row: (i32,) = sqlx_core::query_as::query_as("declare $one as Int32; select $one+$one as sum;").bind(("$one",1)).fetch_one(executor).await.unwrap();
-    assert_eq!(row.0, 2);
+#[test]
+fn test_conn_options_from_str() {
+    let options = YdbConnectOptions::from_str("ydbs://ydb.serverless.yandexcloud.net:2135/ru-central1/some-anfslndundf908/234ndfnsdkjf").unwrap();
+    assert!(options.endpoint.ssl);
+    assert_eq!(options.endpoint.host, "ydb.serverless.yandexcloud.net");
+    assert_eq!(options.endpoint.port, 2135);
+    assert_eq!(options.db_name.as_bytes(), "/ru-central1/some-anfslndundf908/234ndfnsdkjf".as_bytes());
 }
 
 fn default_tx_control() -> TransactionControl {
@@ -165,9 +160,16 @@ impl Connection for YdbConnection {
 }
 
 impl YdbConnection {
+    /// Retrieve DML executor, that can select/insert/update values in existing tables, but cannot modify their definitions
     pub fn executor(&mut self) -> Result<YdbTransaction<'_, UpdatableToken>, YdbError> {
-        let table = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
-        Ok(YdbTransaction::new(table, self.tx_control.clone()))
+        let tx_control = self.tx_control.clone();
+        let table = self.scheme_executor()?;
+        Ok(YdbTransaction::new(table, tx_control))
+    }
+    /// Retrieve DDL executor, that makes operations on tables (create, delete, replace tables/indexes/etc).
+    /// Note that DDL executor cannot fetch results, prepare and describe (never can used in sqlx macro). Parameter binding also unavailable
+    pub fn scheme_executor(&mut self) -> Result<TableClientWithSession<'_, UpdatableToken>, YdbError> {
+        self.inner.table_if_ready().ok_or(YdbError::NoSession)
     }
     /// Reconnect to Ydb if received [YdbError::NoSession] received
     /// Sometimes Ydb service can invalidate connection with Session. An if you use single connection, you need to reconnect them

@@ -3,8 +3,7 @@ use sqlx_core::{types::Type, decode::Decode};
 use ydb_grpc_bindings::generated::ydb;
 use ydb_grpc_bindings::generated::ydb::value::Value;
 use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
-
-use super::YdbArgumentBuffer;
+use super::prelude::*;
 
 #[derive(Debug)]
 struct AnotherType;
@@ -17,7 +16,6 @@ impl std::error::Error for AnotherType {}
 
 macro_rules! ydb_type {
     ($($t:ty = ($info:ident, $val:ident),)+) => {
-        use super::{Ydb, YdbTypeInfo, YdbValue};
         $(
         impl Type<Ydb> for $t {
             fn type_info() -> YdbTypeInfo {

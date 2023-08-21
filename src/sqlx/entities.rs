@@ -16,7 +16,7 @@ use ydb::Column;
 use ydb::ResultSet;
 use ydb::table::ExecuteQueryResult;
 
-use super::Ydb;
+use super::database::Ydb;
 
 #[derive(Debug, Clone)]
 pub struct YdbValue {

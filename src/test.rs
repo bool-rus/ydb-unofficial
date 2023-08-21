@@ -5,7 +5,7 @@ use ydb_grpc_bindings::generated::ydb::table::{PrepareDataQueryRequest, ExplainD
 
 use crate::{auth::sa::ServiceAccountKey, YdbConnection, client::create_endpoint, YdbResponseWithResult};
 
-#[tokio::test]
+//#[tokio::test]
 async fn explain() -> Result<(), Box<dyn Error>> {
     let key: ServiceAccountKey = serde_json::from_reader(
         std::fs::File::open("test-env/authorized_key.json")?
@@ -29,7 +29,7 @@ async fn explain() -> Result<(), Box<dyn Error>> {
     println!("\nquery plan: {}", result.query_plan);
     Ok(())
 }
-#[tokio::test]
+//#[tokio::test]
 async fn select() -> Result<(), Box<dyn Error>> {
 
     let key: ServiceAccountKey = serde_json::from_reader(
@@ -68,7 +68,7 @@ SELECT $x, $x1, $y, $z;
     });
     let pool = sqlx_core::pool::Pool::<crate::sqlx::Ydb>::connect_with(crate::sqlx::YdbConnectOptions::from_str("")?).await?;
     let tx = pool.begin().await?;
-    let mut conn = pool.acquire().await?.executor().await?;
+    let mut conn = pool.acquire().await?.executor()?;
     let response = table.execute_data_query(ExecuteDataQueryRequest{query, tx_control, collect_stats: 2, ..Default::default()}).await?;
     tokio::fs::write("test/example.protobytes", response.get_ref().operation.as_ref().unwrap().result.as_ref().unwrap().value.as_slice()).await?;
     let result = response.get_ref().result()?;

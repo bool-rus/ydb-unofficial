@@ -7,14 +7,16 @@ use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
 use ydb_grpc_bindings::generated::ydb;
 use ydb::r#type::PrimitiveTypeId;
 use ydb::table::{ExecuteDataQueryRequest, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
+use ydb_grpc_bindings::generated::ydb::table::ExecuteSchemeQueryRequest;
 
+use crate::client::TableClientWithSession;
 use crate::{YdbResponseWithResult, YdbTransaction};
 use crate::error::YdbError;
 use crate::auth::UpdatableToken;
 
-use super::minikql::invoke_outputs;
-use super::{Ydb, YdbRow, YdbTypeInfo, YdbStatement, YdbQueryResult, YdbColumn};
+use super::prelude::*;
 type YdbExecutor<'c> = YdbTransaction<'c, UpdatableToken>;
+type YdbSchemeExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
@@ -123,7 +125,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         let result = response.into_inner().result().map_err(YdbError::from)?;
         let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
         node.eval();
-        let outputs = invoke_outputs(&node).unwrap_or_default();
+        let outputs = super::minikql::invoke_outputs(&node).unwrap_or_default();
         let (columns, nullable) = outputs.into_iter().fold((vec![], vec![]), |(mut cols, mut nulls), (ordinal, name, typ, optional)|{
             nulls.push(Some(optional));
             let name = name.to_owned();
@@ -139,7 +141,45 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         let parameters = None;
         Ok(Describe { columns, parameters, nullable })
     })}
-
-
 }
 
+
+impl <'c> Executor<'c> for YdbSchemeExecutor<'c> {
+    type Database = Ydb;
+
+    fn execute<'e, 'q: 'e, E: 'q>(mut self, query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        let yql_text = query.sql().to_owned();
+        Box::pin(async move {
+            self.execute_scheme_query(ExecuteSchemeQueryRequest{ yql_text, ..Default::default()}).await.unwrap();
+            Ok(Default::default())
+        })
+    }
+    fn execute_many<'e, 'q: 'e, E: 'q>( self, query: E) -> BoxStream<'e, Result<YdbQueryResult, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        Box::pin(self.execute(query).into_stream())
+    }
+    fn fetch_many<'e, 'q: 'e, E: 'q>(self, _query: E,) -> BoxStream<'e, Result<Either<YdbQueryResult, YdbRow>, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        Box::pin(futures::future::err(only_execute_err()).into_stream())
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: 'q>(self, _query: E) -> BoxFuture<'e, Result<Option<YdbRow>, sqlx_core::Error>>
+    where 'c: 'e, E: Execute<'q, Self::Database> {
+        Box::pin(futures::future::err(only_execute_err()))
+    }
+
+    fn prepare_with<'e, 'q: 'e>( self, _sql: &'q str, _parameters: &'e [YdbTypeInfo]) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
+    where 'c: 'e {
+        Box::pin(futures::future::err(only_execute_err()))
+    }
+
+    fn describe<'e, 'q: 'e>(self, _sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
+    where 'c: 'e { 
+        Box::pin(futures::future::err(only_execute_err()))
+    }
+}
+
+fn only_execute_err() -> sqlx_core::Error {
+    sqlx_core::Error::AnyDriverError("Only execute method allowed in SchemeExecutor".to_owned().into())
+}

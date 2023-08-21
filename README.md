@@ -22,7 +22,7 @@ There is an alternative of [`ydb`]
 - [ ] Metadata authentication
 - [ ] Query helpers (a lot of)
 - [x] Connection string 
-- [ ] [`sqlx`] integration
+- [`sqlx`] integration - partially done:
     - [x] connection 
     - [x] binding parameters
     - [x] preparing statements
@@ -34,6 +34,9 @@ There is an alternative of [`ydb`]
     - [ ] connection pool balancing for discovery
     - [ ] compile-time checked queries
     - [ ] migrations
+    - [ ] multiple transaction modes
+    - [ ] log statements
+    - [ ] operation parameters
 
 [`deadpool`]: https://crates.io/crates/deadpool
 [`sqlx`]: https://crates.io/crates/sqlx
