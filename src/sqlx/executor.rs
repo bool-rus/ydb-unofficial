@@ -15,13 +15,18 @@ use crate::error::YdbError;
 use crate::auth::UpdatableToken;
 
 use super::prelude::*;
-type YdbSchemeExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
 
 #[derive(Debug)]
 pub struct YdbExecutor<'c> {
     pub inner: YdbTransaction<'c, UpdatableToken>,
     pub log_options: LogOptions,
 }
+
+#[derive(Debug)]
+pub struct YdbSchemeExecutor<'c> {
+    pub inner: TableClientWithSession<'c, UpdatableToken>,
+    pub log_options: LogOptions,
+} 
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
@@ -159,8 +164,10 @@ impl <'c> Executor<'c> for YdbSchemeExecutor<'c> {
     fn execute<'e, 'q: 'e, E: 'q>(mut self, query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {
         let yql_text = query.sql().to_owned();
+        let msg = format!("Run YDB scheme statement: {yql_text}");
         Box::pin(async move {
-            self.execute_scheme_query(ExecuteSchemeQueryRequest{ yql_text, ..Default::default()}).await?;
+            let fut = self.inner.execute_scheme_query(ExecuteSchemeQueryRequest{ yql_text, ..Default::default()});
+            self.log_options.wrap(&msg, fut).await?;
             Ok(Default::default())
         })
     }

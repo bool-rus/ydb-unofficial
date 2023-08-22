@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use super::YdbError;
 use super::database::Ydb;
-use super::executor::YdbExecutor;
+use super::executor::{YdbExecutor, YdbSchemeExecutor};
 use futures::Future;
 use sqlx_core::transaction::{Transaction, TransactionManager};
 use sqlx_core::pool::MaybePoolConnection;
@@ -201,14 +201,16 @@ impl YdbConnection {
     pub fn executor(&mut self) -> Result<YdbExecutor<'_>, YdbError> {
         let tx_control = self.tx_control.clone();
         let log_options = self.log_options;
-        let table = self.scheme_executor()?;
+        let table = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
         let inner = YdbTransaction::new(table, tx_control);
         Ok(YdbExecutor { inner, log_options })
     }
     /// Retrieve DDL executor, that makes operations on tables (create, delete, replace tables/indexes/etc).
     /// Note that DDL executor cannot fetch results, prepare and describe (never can used in sqlx macro). Parameter binding also unavailable
-    pub fn scheme_executor(&mut self) -> Result<TableClientWithSession<'_, UpdatableToken>, YdbError> {
-        self.inner.table_if_ready().ok_or(YdbError::NoSession)
+    pub fn scheme_executor(&mut self) -> Result<YdbSchemeExecutor<'_>, YdbError> {
+        let log_options = self.log_options;
+        let inner = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
+        Ok(YdbSchemeExecutor{ inner, log_options })
     }
     /// Reconnect to Ydb if received [YdbError::NoSession] received
     /// Sometimes Ydb service can invalidate connection with Session. An if you use single connection, you need to reconnect them
