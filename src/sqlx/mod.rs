@@ -16,7 +16,6 @@
 //!         .bind(("$id",1))
 //!         .bind(("$text", "one".to_owned()))
 //!         .execute(conn.executor()?).await?;
-//!     println!("upsert result: {result:?}");
 //!     let row: (i32, String) = query_as("select * from my_test_table;")
 //!         .fetch_one(conn.executor()?).await?;
 //!     assert_eq!(row.0, 1);
