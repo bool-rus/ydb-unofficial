@@ -15,8 +15,13 @@ use crate::error::YdbError;
 use crate::auth::UpdatableToken;
 
 use super::prelude::*;
-type YdbExecutor<'c> = YdbTransaction<'c, UpdatableToken>;
 type YdbSchemeExecutor<'c> = TableClientWithSession<'c, UpdatableToken>;
+
+#[derive(Debug)]
+pub struct YdbExecutor<'c> {
+    pub inner: YdbTransaction<'c, UpdatableToken>,
+    pub log_options: LogOptions,
+}
 
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
@@ -24,6 +29,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     fn execute<'e, 'q: 'e, E: 'q>(mut self, mut query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {
         let parameters = query.take_arguments().map(|a|a.0).unwrap_or_default();
+        let log_msg = format!("Run YQL statement: {}", query.sql());
         let query = if let Some(statement) = query.statement() {
             Some(crate::generated::ydb::table::query::Query::Id(statement.query_id().to_owned()))
         } else {
@@ -31,7 +37,8 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         };
         let query = Some(crate::generated::ydb::table::Query{query});
         Box::pin(async move {
-            let response = self.execute_data_query(ExecuteDataQueryRequest{ query, parameters, ..Default::default()}).await.unwrap();
+            let fut = self.inner.execute_data_query(ExecuteDataQueryRequest{ query, parameters, ..Default::default()});
+            let response = self.log_options.wrap(&log_msg, fut).await?;
             let result = response.into_inner().result().map_err(YdbError::from)?;
             Ok(result.into())
         })
@@ -72,7 +79,9 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     fn prepare<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<YdbStatement, sqlx_core::Error>>
     where 'c: 'e {Box::pin(async move {
         let yql_text = sql.to_owned();
-        let response = self.table_client().prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()}).await?;
+        let msg = format!("Prepare YQL statement: {}", sql);
+        let fut = self.inner.table_client().prepare_data_query(PrepareDataQueryRequest{yql_text, ..Default::default()});
+        let response = self.log_options.wrap(&msg, fut).await?;
         let PrepareQueryResult {query_id, parameters_types} = response.into_inner().result().map_err(YdbError::from)?;
         let parameters = parameters_types.into();
         let yql = sql.to_owned();
@@ -82,8 +91,8 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     fn fetch_all<'e, 'q: 'e, E: 'q>( self, query: E ) -> BoxFuture<'e, Result<Vec<YdbRow>, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {Box::pin ( async move {
         let result = self.execute(query).await?;
-        let rs = result.result_sets.into_iter().next().unwrap();
-        Ok(rs.to_rows())
+        let rows = result.result_sets.into_iter().next().map(|rs|rs.to_rows()).unwrap_or_default();
+        Ok(rows)
     })}
 
     fn execute_many<'e, 'q: 'e, E: 'q>( self, query: E) -> BoxStream<'e, Result<YdbQueryResult, sqlx_core::Error>>
@@ -121,7 +130,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
     //TODO: спрятать под фичу
     fn describe<'e, 'q: 'e>(mut self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Ydb>, sqlx_core::Error>>
     where 'c: 'e { Box::pin( async move {
-        let response = self.table_client().explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
+        let response = self.inner.table_client().explain_data_query(ExplainDataQueryRequest{ yql_text: sql.to_owned(), ..Default::default() }).await?;
         let result = response.into_inner().result().map_err(YdbError::from)?;
         let (_, mut node) = super::minikql::Node::parse(&result.query_ast).map_err(|_|YdbError::DecodeAst)?;
         node.eval();
@@ -151,7 +160,7 @@ impl <'c> Executor<'c> for YdbSchemeExecutor<'c> {
     where 'c: 'e, E: Execute<'q, Self::Database> {
         let yql_text = query.sql().to_owned();
         Box::pin(async move {
-            self.execute_scheme_query(ExecuteSchemeQueryRequest{ yql_text, ..Default::default()}).await.unwrap();
+            self.execute_scheme_query(ExecuteSchemeQueryRequest{ yql_text, ..Default::default()}).await?;
             Ok(Default::default())
         })
     }
