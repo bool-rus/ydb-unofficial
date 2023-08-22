@@ -1,6 +1,9 @@
 use std::str::FromStr;
+use std::time::Duration;
 use super::YdbError;
 use super::database::Ydb;
+use super::executor::YdbExecutor;
+use futures::Future;
 use sqlx_core::transaction::{Transaction, TransactionManager};
 use sqlx_core::pool::MaybePoolConnection;
 use tonic::codegen::futures_core::future::BoxFuture;
@@ -20,6 +23,28 @@ pub struct YdbConnection {
     inner: crate::YdbConnection<UpdatableToken>,
     options: YdbConnectOptions,
     tx_control: TransactionControl,
+    log_options: LogOptions,
+}
+#[derive(Default, Clone, Copy, Debug)]
+pub struct LogOptions {
+    level: Option<log::Level>,
+    slow: Option<(log::Level, Duration)>
+}
+
+impl LogOptions {
+    pub async fn wrap<F: Future>(self, msg: &str, f: F) -> F::Output {
+        if let Some(level) = self.level {
+            log::log!(level, "{}", msg);
+        }
+        let start = std::time::Instant::now();
+        let result = f.await;
+        if let Some((level, duration)) = self.slow {
+            if start.elapsed() > duration {
+                log::log!(level, "{} execution time exeeded", msg);
+            }
+        }
+        result
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +52,7 @@ pub struct YdbConnectOptions {
     endpoint: YdbEndpoint,
     db_name: AsciiValue,
     creds: UpdatableToken,
+    log_options: LogOptions,
 }
 
 impl YdbConnectOptions {
@@ -76,7 +102,7 @@ impl ConnectOptions for YdbConnectOptions {
         };
         let host = url.host_str().ok_or(ConfErr("no host".into()))?.into();
         let port = url.port().ok_or(ConfErr("no port".into()))?;
-        let db_name = url.path().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into())).unwrap();
+        let db_name = url.path().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
         let endpoint = YdbEndpoint { ssl, host, port, load_factor: 0.0 };
         let mut creds = UpdatableToken::new("".try_into().unwrap());
         for (k,v) in url.query_pairs() {
@@ -102,7 +128,7 @@ impl ConnectOptions for YdbConnectOptions {
                 _ => {}
             }
         };
-        Ok(Self{endpoint, db_name, creds})
+        Ok(Self{endpoint, db_name, creds, log_options: Default::default()})
     }
 
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, sqlx_core::Error>>
@@ -111,18 +137,29 @@ impl ConnectOptions for YdbConnectOptions {
         let channel = self.endpoint.make_endpoint().connect_lazy();
         let mut inner = crate::YdbConnection::new(channel, self.db_name.clone(), self.creds.clone());
         let tx_control = default_tx_control();
+        let log_options = self.log_options;
         Box::pin(async move {
             let _ = inner.table().await?;
-            Ok(YdbConnection { inner, options: self.clone(), tx_control })
+            Ok(YdbConnection { inner, options: self.clone(), tx_control, log_options })
         })
     }
 
-    fn log_statements(self, level: log::LevelFilter) -> Self {
-        todo!()
+    fn log_statements(mut self, level: log::LevelFilter) -> Self {
+        if let Some(level) = level.to_level() {
+            self.log_options.level = Some(level);
+        } else {
+            self.log_options.level = None;
+        }
+        self
     }
 
-    fn log_slow_statements(self, level: log::LevelFilter, duration: std::time::Duration) -> Self {
-        todo!()
+    fn log_slow_statements(mut self, level: log::LevelFilter, duration: std::time::Duration) -> Self {
+        if let Some(level) = level.to_level() {
+            self.log_options.slow = Some((level, duration));
+        } else {
+            self.log_options.slow = None;
+        }
+        self
     }
 }
 
@@ -161,10 +198,12 @@ impl Connection for YdbConnection {
 
 impl YdbConnection {
     /// Retrieve DML executor, that can select/insert/update values in existing tables, but cannot modify their definitions
-    pub fn executor(&mut self) -> Result<YdbTransaction<'_, UpdatableToken>, YdbError> {
+    pub fn executor(&mut self) -> Result<YdbExecutor<'_>, YdbError> {
         let tx_control = self.tx_control.clone();
+        let log_options = self.log_options;
         let table = self.scheme_executor()?;
-        Ok(YdbTransaction::new(table, tx_control))
+        let inner = YdbTransaction::new(table, tx_control);
+        Ok(YdbExecutor { inner, log_options })
     }
     /// Retrieve DDL executor, that makes operations on tables (create, delete, replace tables/indexes/etc).
     /// Note that DDL executor cannot fetch results, prepare and describe (never can used in sqlx macro). Parameter binding also unavailable
@@ -194,13 +233,13 @@ impl TransactionManager for YdbTransactionManager {
     })}
 
     fn commit(conn: &mut YdbConnection) -> BoxFuture<'_, Result<(), sqlx_core::Error>> { Box::pin(async { 
-        conn.executor()?.commit_inner().await?;
+        conn.executor()?.inner.commit_inner().await?;
         conn.tx_control = default_tx_control();
         Ok(())
     })}
 
     fn rollback(conn: &mut YdbConnection) -> BoxFuture<'_, Result<(), sqlx_core::Error>> { Box::pin(async {
-        conn.executor()?.rollback_inner().await?;
+        conn.executor()?.inner.rollback_inner().await?;
         conn.tx_control = default_tx_control();
         Ok(())
     })}
