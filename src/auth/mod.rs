@@ -2,6 +2,8 @@
 //! You can make your own auth by implement [`Credentials`]
 
 
+use std::sync::{Arc, RwLock};
+
 use super::*;
 /// Trait to creates tokens for ydb auth
 pub trait Credentials: Clone + Send + 'static {
@@ -11,6 +13,24 @@ pub trait Credentials: Clone + Send + 'static {
 impl Credentials for String {
     fn token(&self) -> AsciiValue {
         self.clone().try_into().unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdatableToken {
+    token: Arc<RwLock<AsciiValue>>,
+}
+
+impl UpdatableToken {
+    pub fn new(token: AsciiValue) -> Self {
+        let token = Arc::new(RwLock::new(token));
+        Self {token}
+    }
+}
+
+impl Credentials for UpdatableToken {
+    fn token(&self) -> AsciiValue {
+        self.token.read().unwrap().clone()
     }
 }
 

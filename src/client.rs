@@ -6,7 +6,7 @@
 //! # async fn main() {
 //!     let url = std::env::var("YDB_URL").expect("YDB_URL not set");
 //!     let db_name = std::env::var("DB_NAME").expect("DB_NAME not set");
-//!      let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
+//!     let creds = std::env::var("DB_TOKEN").expect("DB_TOKEN not set");
 //! 
 //!     // how you can create service
 //!     let endpoint = ydb_unofficial::client::create_endpoint(url.try_into().unwrap());
@@ -52,6 +52,46 @@ use generated::ydb::table::transaction_settings::TxMode;
 use generated::ydb::table::v1::table_service_client::TableServiceClient;
 use tower::Service;
 
+#[derive(Debug, Clone)]
+pub struct YdbEndpoint {
+    pub ssl: bool,
+    pub host: String,
+    pub port: u16,
+    pub load_factor: f32,
+}
+
+impl YdbEndpoint {
+    pub fn scheme(&self) -> &'static str {
+        if self.ssl { "grpcs" } else { "grpc" }
+    }
+    pub fn make_endpoint(&self) -> Endpoint {
+        let uri: tonic::transport::Uri = format!("{}://{}:{}", self.scheme(), self.host, self.port).try_into().unwrap();
+        let mut e = Endpoint::from(uri).tcp_keepalive(Some(std::time::Duration::from_secs(15)));
+        if self.ssl {
+            e = e.tls_config(Default::default()).unwrap()
+        }
+        e
+    }
+}
+
+impl TryFrom<Uri> for YdbEndpoint {
+    type Error = String;
+
+    fn try_from(value: Uri) -> Result<Self, Self::Error> {
+        //TODO: убрать дублирование
+        let ssl = match value.scheme_str() {
+            Some("grpc") => false,
+            Some("grpcs") => true,
+            _ => return Err("Unknown protocol".to_owned()),
+        };
+        let host = value.host().ok_or("no host")?.to_owned();
+        let port = value.port_u16().ok_or("no port")?;
+        let load_factor = 0.0;
+        Ok(Self {ssl, host, port, load_factor})
+    }
+}
+
+
 /// Creates endpoint from uri
 /// If protocol is `grpcs`, then creates [`tonic::transport::ClientTlsConfig`] and applies to [`Endpoint`]
 ///
@@ -75,7 +115,7 @@ pub fn create_endpoint(uri: Uri) -> Endpoint {
 }
 
 
-#[allow(non_upper_case_globals)]
+//#[allow(non_upper_case_globals)]
 #[ctor::ctor]
 static BUILD_INFO: AsciiValue = concat!("ydb-unofficial/", env!("CARGO_PKG_VERSION")).try_into().unwrap();
 
@@ -94,7 +134,9 @@ impl<C: Credentials> Interceptor for DBInterceptor<C> {
         Ok(request)    
     }
 }
+
 /// Ydb connection implementation, that pass database name and auth data to grpc channel
+#[derive(Debug)]
 pub struct YdbConnection<C: Credentials> {
     inner: InterceptedService<Channel, DBInterceptor<C>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -204,9 +246,35 @@ impl<C: Credentials> YdbConnection<C> {
         let client = TableServiceClient::new(self);
         Ok(TableClientWithSession {session_ref, session_id, client })
     }
+    pub fn table_if_ready(&mut self) -> Option<TableClientWithSession<C>> {
+        let session_id = self.session_id()?;
+        let session_ref = self.session_id.clone();
+        Some(TableClientWithSession {session_ref, session_id, client: TableServiceClient::new(self) })
+    }
     fn session_id(&self) -> Option<String> {
         self.session_id.read().unwrap().clone()
     }
+    pub async fn close_session(&mut self) -> Result<(), YdbError> {
+        delete_session(&self.session_id, self.inner.clone()).await?;
+        Ok(())
+    }
+    #[doc(hidden)]
+    pub fn close_session_hard(self) {
+        *self.session_id.write().unwrap() = None;
+    }
+}
+
+
+async fn delete_session<C: Credentials>(session_ref: &Arc<RwLock<Option<String>>>, service: InterceptedService<Channel, DBInterceptor<C>>)  -> Result<(), YdbError> {
+    let session_id = session_ref.read().unwrap().clone();
+    if let Some(session_id) = session_id {
+        let mut client = TableServiceClient::new(service);
+        let response = client.delete_session(DeleteSessionRequest{session_id, ..Default::default()}).await?;
+        let code = response.get_ref().operation.as_ref().ok_or(YdbError::EmptyResponse)?.status();
+        process_session_fail(code, session_ref);
+    }
+    *session_ref.write().unwrap() = None;
+    Ok(())
 }
 
 impl<C: Credentials> Drop for YdbConnection<C> {
@@ -229,11 +297,25 @@ impl<C: Credentials> Drop for YdbConnection<C> {
 /// [`TableServiceClient`] with active session.
 /// for each method (that requires session_id) table client injects session_id field
 /// Session may be invalid. In this case you need to recreate that client with [`YdbConnection::table`]
+#[derive(Debug)]
 pub struct TableClientWithSession<'a, C: Credentials> {
     //TODO: тут бы это все как-то покрасивее сделать, но из TableServiceClient YdbConnection не достать
     session_ref: Arc<RwLock<Option<String>>>, 
     session_id: String,
     client: TableServiceClient<&'a mut YdbConnection<C>>,
+}
+
+fn process_session_fail(
+    code: crate::generated::ydb::status_ids::StatusCode, 
+    session_ref: &Arc<RwLock<Option<String>>>,
+) {
+    use crate::generated::ydb::status_ids::StatusCode;
+    match code {
+        StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
+            *session_ref.write().unwrap() = None;
+        },
+        _ => {}
+    }
 }
 
 macro_rules! delegate {
@@ -246,11 +328,10 @@ macro_rules! delegate {
             use crate::error::ErrWithOperation;
             match status {
                 StatusCode::Success => Ok(result),
-                StatusCode::BadSession | StatusCode::SessionExpired | StatusCode::SessionBusy => {
-                    *self.session_ref.write().unwrap() = None;
+                _ => {
+                    process_session_fail(status, &self.session_ref);
                     Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap())))
-                }
-                _ => Err(YdbError::Ydb(ErrWithOperation(result.into_inner().operation.unwrap()))),
+                },
             }
         }
     )+} 
@@ -273,6 +354,7 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         fn begin_transaction(BeginTransactionRequest) -> BeginTransactionResponse;
         fn commit_transaction(CommitTransactionRequest) -> CommitTransactionResponse;
         fn rollback_transaction(RollbackTransactionRequest) -> RollbackTransactionResponse;
+        fn delete_session(DeleteSessionRequest) -> DeleteSessionResponse;
     }
     pub async fn stream_read_table(&mut self, mut req: ReadTableRequest) -> Result<tonic::Response<tonic::codec::Streaming<ReadTableResponse>>, tonic::Status> {
         req.session_id = self.session_id.clone();
@@ -281,8 +363,9 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
 }
 
 /// [`TableServiceClient`] with active session and transaction
+#[derive(Debug)]
 pub struct YdbTransaction<'a, C: Credentials> {
-    tx_control: Option<TransactionControl>,
+    tx_control: TransactionControl,
     //TODO: переделать на &mut
     client: TableClientWithSession<'a, C>,
 }
@@ -306,22 +389,28 @@ pub struct YdbTransaction<'a, C: Credentials> {
 /// # }
 /// ```
 impl<'a, C: Credentials> YdbTransaction<'a, C> {
+    pub(crate) fn new(client: TableClientWithSession<'a, C>, tx_control: TransactionControl) -> Self {
+        Self {client, tx_control}
+    }
+    pub(crate) fn table_client(&mut self) -> &mut TableClientWithSession<'a, C> {
+        &mut self.client
+    }
     /// Method that just creates ReadWrite transaction 
     pub async fn create(mut client: TableClientWithSession<'a, C>) -> Result<YdbTransaction<'a, C>, crate::error::YdbError> {
         let tx_settings = Some(TransactionSettings{tx_mode: Some(TxMode::SerializableReadWrite(Default::default()))});
         let response = client.begin_transaction(BeginTransactionRequest{tx_settings, ..Default::default()}).await?;
         let tx_id = response.into_inner().result()?.tx_meta.unwrap().id;
-        let tx_control = Some(TransactionControl{commit_tx: false, tx_selector: Some(TxSelector::TxId(tx_id))});
+        let tx_control = TransactionControl{commit_tx: false, tx_selector: Some(TxSelector::TxId(tx_id))};
         Ok(Self {tx_control, client})
     }
     fn invoke_tx_id(&self) -> String {
-        if let TxSelector::TxId(tx_id) = self.tx_control.clone().unwrap().tx_selector.unwrap() {
+        if let TxSelector::TxId(tx_id) = self.tx_control.clone().tx_selector.unwrap() {
             tx_id
         } else {
             panic!("looks like a bug")
         }
     }
-    async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
+    pub(crate) async fn commit_inner(&mut self) ->  Result<CommitTransactionResult, YdbError> {
         let tx_id = self.invoke_tx_id();
         let response = self.client.commit_transaction(CommitTransactionRequest {tx_id, ..Default::default()}).await?;
         let result = response.into_inner().result()?; //что там может быть полезного?
@@ -333,7 +422,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
         let result = self.commit_inner().await;
         (self.client, result)
     }
-    async fn rollback_inner(&mut self) -> Result<(), YdbError> {
+    pub (crate) async fn rollback_inner(&mut self) -> Result<(), YdbError> {
         let tx_id = self.invoke_tx_id();
         self.client.rollback_transaction(RollbackTransactionRequest {tx_id, ..Default::default()}).await?;
         Ok(())
@@ -345,7 +434,7 @@ impl<'a, C: Credentials> YdbTransaction<'a, C> {
     /// you can execute multiple query requests in transaction
     /// transaction data will inject for each request
     pub async fn execute_data_query(&mut self, mut req: ExecuteDataQueryRequest) -> Result<tonic::Response<ExecuteDataQueryResponse>,YdbError> {
-        req.tx_control = self.tx_control.clone();
+        req.tx_control = Some(self.tx_control.clone());
         self.client.execute_data_query(req).await
     }
 }

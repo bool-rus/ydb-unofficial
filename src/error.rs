@@ -15,6 +15,12 @@ pub enum YdbError {
     Ydb(ErrWithOperation),
     #[error("Empty response")]
     EmptyResponse,
+    #[cfg(feature = "sqlx")]
+    #[error("Error on decode ast")]
+    DecodeAst,
+    #[cfg(feature = "sqlx")]
+    #[error("No session, try to reconnect")]
+    NoSession,
 }
 
 #[derive(Error, Debug)]
