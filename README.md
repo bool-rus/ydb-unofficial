@@ -30,12 +30,13 @@ There is an alternative of [`ydb`]
     - [x] DML (data) operations
     - [x] DDL (scheme) operations
     - [x] primitive types (bool, i8, i32, i64, u8, u32, u64, f32, f64, Vec\<u8\>, String)
+    - [x] date types (Date, Datetime, Timestamp, Interval)
     - [ ] Decimal type
     - [ ] connection pool balancing for discovery
     - [ ] compile-time checked queries
     - [ ] migrations
     - [ ] multiple transaction modes
-    - [ ] log statements
+    - [x] log statements
     - [ ] operation parameters
 
 [`deadpool`]: https://crates.io/crates/deadpool

@@ -11,3 +11,5 @@ pub use sqlx_core::executor::Executor;
 pub use sqlx_core::connection::*;
 
 pub use std::str::FromStr;
+
+pub use super::types::{Date, Datetime, Timestamp, Interval};

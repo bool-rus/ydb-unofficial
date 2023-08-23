@@ -1,9 +1,7 @@
-use sqlx_core::encode::Encode;
-use sqlx_core::{types::Type, decode::Decode};
-use ydb_grpc_bindings::generated::ydb;
-use ydb_grpc_bindings::generated::ydb::value::Value;
-use ydb_grpc_bindings::generated::ydb::r#type::PrimitiveTypeId;
-use super::prelude::*;
+use sqlx_core::{types::Type, decode::Decode, encode::Encode};
+use ydb_grpc_bindings::generated::ydb::{self, value::Value, r#type::PrimitiveTypeId};
+use super::database::{Ydb, YdbArgumentBuffer};
+use super::entities::{YdbValue, YdbTypeInfo};
 
 #[derive(Debug)]
 struct AnotherType;
@@ -26,7 +24,7 @@ macro_rules! ydb_type {
         impl Decode<'_, Ydb> for $t {
             fn decode(value: &YdbValue) -> Result<Self, sqlx_core::error::BoxDynError> {
                 match value.value() {
-                    Value::$val(v) => Ok(v.clone() as $t),
+                    Value::$val(v) => Ok(v.clone().try_into().unwrap()),
                     _ => Err(Box::new(AnotherType))
                 }
             }
@@ -41,7 +39,7 @@ macro_rules! ydb_type {
         impl<'q, S: ToString + Clone> Encode<'q, Ydb> for (S, $t) {
             fn encode_by_ref(&self, buf: &mut YdbArgumentBuffer) -> sqlx_core::encode::IsNull {
                 let value = ydb::Value {
-                    value: Some(ydb::value::Value::$val(self.1.clone().into())),
+                    value: Some(ydb::value::Value::$val(self.1.clone().try_into().unwrap())),
                     ..Default::default()
                 };
                 let value = ydb::TypedValue {
@@ -54,6 +52,27 @@ macro_rules! ydb_type {
         }
     )+}
 }
+
+
+macro_rules! wrapper_types {
+    ($($t:ident ($inner:ty) $fun:ident ),+) => {$(
+        
+        #[derive(Debug, Clone, Copy)]
+        pub struct $t($inner);
+        impl Into<$inner> for $t { fn into(self) -> $inner {self.0} }
+        impl From<$inner> for $t { fn from(v: $inner) -> Self {Self(v)} }
+        impl $t {pub fn $fun(&self) -> $inner { self.0 }}
+    )+};
+}
+wrapper_types! {
+    Date(u16) days, 
+    Datetime(u32) secs, 
+    Timestamp(u64) micros, 
+    Interval(i64) micros
+}
+
+impl Into<u32> for Date { fn into(self) -> u32 { self.0.into() }}
+impl From<u32> for Date { fn from(v: u32) -> Self {Self(v.try_into().unwrap())}}
 
 
 ydb_type! {
@@ -70,5 +89,8 @@ ydb_type! {
     f64 = (Double, DoubleValue),
     Vec<u8> = (String, BytesValue),
     String = (Utf8, TextValue),
+    Date = (Date, Uint32Value),
+    Datetime = (Datetime, Uint32Value),
+    Timestamp = (Timestamp, Uint64Value),
 }
 
