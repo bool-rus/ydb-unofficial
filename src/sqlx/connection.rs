@@ -15,7 +15,7 @@ use ydb::table::TransactionSettings;
 use ydb::table::transaction_settings::TxMode;
 use crate::{AsciiValue, YdbTransaction};
 use crate::auth::UpdatableToken;
-use crate::client::{YdbEndpoint, TableClientWithSession};
+use crate::client::YdbEndpoint;
 
 use crate::payload::YdbResponseWithResult;
 
@@ -117,10 +117,8 @@ impl ConnectOptions for YdbConnectOptions {
                     let file = std::fs::File::open(v.as_ref()).map_err(|e|ConfErr(format!("cannot open sa file: {e}").into()))?;
                     use crate::auth::sa::*;
                     let key: ServiceAccountKey = serde_json::from_reader(file).map_err(|e|ConfErr(format!("cannot parse sa file: {e}").into()))?;
-                    creds = tokio::task::block_in_place(||{
-                        futures::executor::block_on(async {
-                            ServiceAccountCredentials::create(key).await
-                        })
+                    creds = futures::executor::block_on(async {
+                        ServiceAccountCredentials::create(key).await
                     })
                     .map_err(YdbError::from)?.into();
                     break;
