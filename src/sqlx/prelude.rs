@@ -10,6 +10,9 @@ pub use sqlx_core::pool::*;
 pub use sqlx_core::executor::Executor;
 pub use sqlx_core::connection::*;
 
+#[cfg(feature = "migrate")]
+pub use sqlx_core::migrate::Migrator;
+
 pub use std::str::FromStr;
 
 pub use super::types::{Date, Datetime, Timestamp, Interval};

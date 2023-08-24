@@ -40,3 +40,7 @@ mod minikql;
 use super::error::YdbError;
 
 pub mod prelude;
+
+#[cfg(feature = "migrate")]
+#[cfg_attr(docsrs, doc(cfg(feature = "migrate")))]
+mod migration;
