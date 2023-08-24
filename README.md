@@ -34,10 +34,10 @@ There is an alternative of [`ydb`]
     - [ ] Decimal type
     - [ ] connection pool balancing for discovery
     - [ ] compile-time checked queries
-    - [ ] migrations
+    - [x] migrations
     - [ ] multiple transaction modes
     - [x] log statements
-    - [ ] operation parameters
+- [ ] operation parameters
 
 [`deadpool`]: https://crates.io/crates/deadpool
 [`sqlx`]: https://crates.io/crates/sqlx
