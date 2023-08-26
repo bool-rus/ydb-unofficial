@@ -1,11 +1,11 @@
 [package]
 name = "ydb-unofficial"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "Apache-2.0"
 keywords = ["database", "db", "ydb", "sqlx"]
 description = "Unofficial Ydb client library written on rust"
-repository = "https://hub.mos.ru/bool.rus/ydb-unofficial.git"
+repository = "https://github.com/bool-rus/ydb-unofficial"
 
 [package.metadata.docs.rs]
 features = ["pool", "auth-sa", "auth-cli", "sqlx", "migrate"]
