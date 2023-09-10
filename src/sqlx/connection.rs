@@ -102,13 +102,16 @@ impl ConnectOptions for YdbConnectOptions {
         };
         let host = url.host_str().ok_or(ConfErr("no host".into()))?.into();
         let port = url.port().ok_or(ConfErr("no port".into()))?;
-        let db_name = url.path().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
+        let mut db_name = url.path().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
         let endpoint = YdbEndpoint { ssl, host, port, load_factor: 0.0 };
         let mut creds = UpdatableToken::new("".try_into().unwrap());
         for (k,v) in url.query_pairs() {
             match k.as_ref() {
+                "database" => {
+                    db_name = v.as_ref().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
+                }
                 "token" => {
-                    let token = v.as_ref().try_into().map_err(|e|ConfErr(format!("cannot parse database name: {e}").into()))?;
+                    let token = v.as_ref().try_into().map_err(|e|ConfErr(format!("cannot parse token: {e}").into()))?;
                     creds = UpdatableToken::new(token);
                     break;
                 }
