@@ -204,7 +204,7 @@ impl YdbConnection {
         let log_options = self.log_options;
         let table = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
         let inner = YdbTransaction::new(table, tx_control);
-        Ok(YdbExecutor { inner, log_options })
+        Ok(YdbExecutor {retry: false, inner, log_options })
     }
     /// Retrieve DDL executor, that makes operations on tables (create, delete, replace tables/indexes/etc).
     /// Note that DDL executor cannot fetch results, prepare and describe (never can used in sqlx macro). Parameter binding also unavailable

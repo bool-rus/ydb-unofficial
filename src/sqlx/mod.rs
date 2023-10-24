@@ -7,7 +7,7 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     use ydb_unofficial::sqlx::prelude::*;
 //!     let token = std::env::var("DB_TOKEN").unwrap();
-//!     let conn_str = format!("ydbs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?token={token}");
+//!     let conn_str = format!("grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f&token={token}");
 //!     let options = YdbConnectOptions::from_str(&conn_str)?;
 //!     let mut conn = options.connect().await?;
 //!     query("create table my_test_table (id int32, text utf8, primary key(id));")

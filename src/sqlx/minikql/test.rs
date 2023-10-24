@@ -53,7 +53,7 @@ fn invoke_outputs<'a, 'b: 'a>(node: &'b Node<'a>) -> Option<Vec<(&'a str, &'a st
         } else {
             typ
         }.list()?.into_iter().next()?;
-        let t = PrimitiveTypeId::from_str_name(&typ.text()?.to_ascii_uppercase());
+        let _t = PrimitiveTypeId::from_str_name(&typ.text()?.to_ascii_uppercase());
         Some((name, typ.text()?, is_optional))
     }).collect();
     Some(result)

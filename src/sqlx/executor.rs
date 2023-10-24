@@ -18,6 +18,7 @@ use super::prelude::*;
 
 #[derive(Debug)]
 pub struct YdbExecutor<'c> {
+    pub retry: bool, 
     pub inner: YdbTransaction<'c, UpdatableToken>,
     pub log_options: LogOptions,
 }
@@ -28,24 +29,50 @@ pub struct YdbSchemeExecutor<'c> {
     pub log_options: LogOptions,
 } 
 
+fn make_grpc_request<'e>(mut query: impl Execute<'e, Ydb>) -> ExecuteDataQueryRequest {
+    let parameters = query.take_arguments().map(|a|a.0).unwrap_or_default();
+    let query = if let Some(statement) = query.statement() {
+        Some(crate::generated::ydb::table::query::Query::Id(statement.query_id().to_owned()))
+    } else {
+        Some(crate::generated::ydb::table::query::Query::YqlText(query.sql().to_owned()))
+    };
+    let query = Some(crate::generated::ydb::table::Query{query});
+    ExecuteDataQueryRequest{ query, parameters, ..Default::default()}
+}
+
+impl<'c> YdbExecutor<'c> {
+    pub fn retry(mut self) -> Self {
+        self.retry = true;
+        self
+    }
+    pub async fn send(&mut self, req: ExecuteDataQueryRequest) -> Result<YdbQueryResult, YdbError> {
+        let log_msg = format!("Running sql: {:?}", req.query);
+        let fut = self.inner.execute_data_query(req);
+        let response = self.log_options.wrap(&log_msg, fut).await?;
+        let result = response.into_inner().result().map_err(YdbError::from)?;
+        Ok(result.into())
+    }
+}
+
 impl<'c> Executor<'c> for YdbExecutor<'c> {
     type Database = Ydb;
 
-    fn execute<'e, 'q: 'e, E: 'q>(mut self, mut query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
+    fn execute<'e, 'q: 'e, E: 'q>(mut self, query: E,) -> BoxFuture<'e, Result<YdbQueryResult, sqlx_core::Error>>
     where 'c: 'e, E: Execute<'q, Self::Database> {
-        let parameters = query.take_arguments().map(|a|a.0).unwrap_or_default();
-        let log_msg = format!("Run YQL statement: {}", query.sql());
-        let query = if let Some(statement) = query.statement() {
-            Some(crate::generated::ydb::table::query::Query::Id(statement.query_id().to_owned()))
-        } else {
-            Some(crate::generated::ydb::table::query::Query::YqlText(query.sql().to_owned()))
-        };
-        let query = Some(crate::generated::ydb::table::Query{query});
+        let req = make_grpc_request(query);
         Box::pin(async move {
-            let fut = self.inner.execute_data_query(ExecuteDataQueryRequest{ query, parameters, ..Default::default()});
-            let response = self.log_options.wrap(&log_msg, fut).await?;
-            let result = response.into_inner().result().map_err(YdbError::from)?;
-            Ok(result.into())
+            if self.retry {
+                match self.send(req.clone()).await {
+                    Ok(r) => Ok(r),
+                    Err(YdbError::NoSession) => {
+                        self.inner.table_client().update_session().await?;
+                        self.send(req).await
+                    }
+                    Err(e) => Err(e)
+                }
+            } else {
+                self.send(req).await
+            }.map_err(Into::into)
         })
     }
 

@@ -360,6 +360,14 @@ impl <'a, C: Credentials + Send> TableClientWithSession<'a, C> {
         req.session_id = self.session_id.clone();
         self.client.stream_read_table(req).await
     }
+    pub async fn update_session(&mut self) -> Result<(), YdbError> {
+        let response = self.client.create_session(CreateSessionRequest::default()).await?;
+        let session_id = response.into_inner().result()?.session_id;
+        log::debug!("Session created: {session_id}");
+        *self.session_ref.write().unwrap() = Some(session_id.clone());
+        self.session_id = session_id;
+        Ok(())
+    }
 }
 
 /// [`TableServiceClient`] with active session and transaction

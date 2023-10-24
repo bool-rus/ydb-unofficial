@@ -4,3 +4,4 @@ test-env
 .vscode
 .env
 Cargo.lock
+.DS_Store

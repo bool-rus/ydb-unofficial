@@ -9,6 +9,7 @@ pub use sqlx_core::query_as::query_as;
 pub use sqlx_core::pool::*;
 pub use sqlx_core::executor::Executor;
 pub use sqlx_core::connection::*;
+pub use sqlx_core::Error as SQLXError;
 
 #[cfg(feature = "migrate")]
 pub use sqlx_core::migrate::Migrator;
