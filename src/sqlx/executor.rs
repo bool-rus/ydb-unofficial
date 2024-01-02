@@ -41,6 +41,7 @@ fn make_grpc_request<'e>(mut query: impl Execute<'e, Ydb>) -> ExecuteDataQueryRe
 }
 
 impl<'c> YdbExecutor<'c> {
+    /// configure executor to handle expired session error. In this case executor updates the session, then retries query
     pub fn retry(mut self) -> Self {
         self.retry = true;
         self
