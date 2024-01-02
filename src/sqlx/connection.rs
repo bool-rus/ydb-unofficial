@@ -24,6 +24,7 @@ pub struct YdbConnection {
     options: YdbConnectOptions,
     tx_control: TransactionControl,
     log_options: LogOptions,
+    pub retry: bool,
 }
 #[derive(Default, Clone, Copy, Debug)]
 pub struct LogOptions {
@@ -141,7 +142,7 @@ impl ConnectOptions for YdbConnectOptions {
         let log_options = self.log_options;
         Box::pin(async move {
             let _ = inner.table().await?;
-            Ok(YdbConnection { inner, options: self.clone(), tx_control, log_options })
+            Ok(YdbConnection { inner, options: self.clone(), tx_control, log_options, retry: true })
         })
     }
 
@@ -204,7 +205,7 @@ impl YdbConnection {
         let log_options = self.log_options;
         let table = self.inner.table_if_ready().ok_or(YdbError::NoSession)?;
         let inner = YdbTransaction::new(table, tx_control);
-        Ok(YdbExecutor {retry: false, inner, log_options })
+        Ok(YdbExecutor {retry: self.retry, inner, log_options })
     }
     /// Retrieve DDL executor, that makes operations on tables (create, delete, replace tables/indexes/etc).
     /// Note that DDL executor cannot fetch results, prepare and describe (never can used in sqlx macro). Parameter binding also unavailable
