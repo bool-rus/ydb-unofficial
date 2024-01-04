@@ -75,10 +75,17 @@ impl ServiceAccountCredentials {
             loop {
                 tokio::time::sleep(sleep_duration).await;
                 if let Some(token) = update_me.upgrade() {
-                    let response = conf.request_iam_token(&key).await.unwrap();
-                    sleep_duration = conf.invoke_sleep_duration(&response);
-                    *token.write().unwrap() = response.iam_token.clone().try_into().unwrap();
-                    log::info!("Iam token updated");
+                    match conf.request_iam_token(&key).await {
+                        Ok(response) => {
+                            sleep_duration = conf.invoke_sleep_duration(&response);
+                            *token.write().unwrap() = response.iam_token.clone().try_into().unwrap();
+                            log::info!("Iam token updated");
+                        }
+                        Err(e) => {
+                            log::error!("Cannot update iam token: {:?}", e);
+                            sleep_duration = Duration::from_secs(5);
+                        }
+                    }
                 } else {
                     log::info!("ServiceAccountCredentials removed");
                     break;
