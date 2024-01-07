@@ -126,6 +126,7 @@ impl UpdateConfig {
         } else  {
             self.update_period
         };
+        log::info!("expires after: {:?}", expires);
         Duration::from_secs(60)//expires.into();
     }
 }
