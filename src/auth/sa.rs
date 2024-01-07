@@ -126,7 +126,7 @@ impl UpdateConfig {
         } else  {
             self.update_period
         };
-        expires.into()
+        Duration::from_secs(60)//expires.into();
     }
 }
 
