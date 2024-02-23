@@ -5,6 +5,7 @@ use sqlx_core::executor::{Executor, Execute};
 use sqlx_core::Either;
 use tonic::codegen::futures_core::{future::BoxFuture, stream::BoxStream};
 use ydb_grpc_bindings::generated::ydb;
+use ydb::status_ids::StatusCode;
 use ydb::r#type::PrimitiveTypeId;
 use ydb::table::{ExecuteDataQueryRequest, ExplainDataQueryRequest, PrepareDataQueryRequest, PrepareQueryResult};
 use ydb_grpc_bindings::generated::ydb::table::ExecuteSchemeQueryRequest;
@@ -63,13 +64,18 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
         let req = make_grpc_request(query);
         Box::pin(async move {
             if self.retry {
-                match self.send(req.clone()).await {
-                    Ok(r) => Ok(r),
-                    Err(YdbError::NoSession) | Err(YdbError::BadSession) => {
+                let result = self.send(req.clone()).await;
+                match &result {
+                    Ok(r) => result,
+                    Err(YdbError::Ydb(ErrWithOperation(op))) if op.status() == StatusCode::BadSession => {
                         self.inner.table_client().update_session().await?;
                         self.send(req).await
                     }
-                    Err(e) => Err(e)
+                    Err(YdbError::NoSession) => {
+                        self.inner.table_client().update_session().await?;
+                        self.send(req).await
+                    }
+                    Err(e) => result
                 }
             } else {
                 self.send(req).await
