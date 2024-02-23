@@ -65,7 +65,7 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
             if self.retry {
                 match self.send(req.clone()).await {
                     Ok(r) => Ok(r),
-                    Err(YdbError::NoSession) => {
+                    Err(YdbError::NoSession) | Err(YdbError::BadSession) => {
                         self.inner.table_client().update_session().await?;
                         self.send(req).await
                     }
