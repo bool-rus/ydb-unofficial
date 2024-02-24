@@ -66,16 +66,11 @@ impl<'c> Executor<'c> for YdbExecutor<'c> {
             if self.retry {
                 let result = self.send(req.clone()).await;
                 match &result {
-                    Ok(r) => result,
                     Err(YdbError::Ydb(ErrWithOperation(op))) if op.status() == StatusCode::BadSession => {
                         self.inner.table_client().update_session().await?;
                         self.send(req).await
                     }
-                    Err(YdbError::NoSession) => {
-                        self.inner.table_client().update_session().await?;
-                        self.send(req).await
-                    }
-                    Err(e) => result
+                    _ => result
                 }
             } else {
                 self.send(req).await
