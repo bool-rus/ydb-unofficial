@@ -83,7 +83,8 @@ wrapper_primitive_types! {
 }
 
 wrapper_types! {
-    Json(String) text
+    Json(String) text,
+    JsonDocument(String) text
 }
 impl Into<u32> for Date { fn into(self) -> u32 { self.0.into() }}
 impl From<u32> for Date { fn from(v: u32) -> Self {Self(v.try_into().unwrap())}}
@@ -107,5 +108,6 @@ ydb_type! {
     Datetime = (Datetime, Uint32Value),
     Timestamp = (Timestamp, Uint64Value),
     Json = (Json, TextValue),
+    JsonDocument = (JsonDocument, TextValue),
 }
 
