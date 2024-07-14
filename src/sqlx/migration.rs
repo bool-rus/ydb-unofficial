@@ -7,7 +7,9 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     use ydb_unofficial::sqlx::prelude::*;
 //!     let token = std::env::var("DB_TOKEN").unwrap();
-//!     let conn_str = format!("ydbs://ydb.serverless.yandexcloud.net:2135/ru-central1/b1gtv82sacrcnutlfktm/etn8sgrgdbp7jqv64k9f?token={token}");
+//!     let db_url = std::env::var("YDB_URL").unwrap();
+//!     let db_name = std::env::var("DB_NAME").unwrap();
+//!     let conn_str = format!("{db_url}{db_name}?token={token}");
 //!     let options = YdbConnectOptions::from_str(&conn_str)?;
 //!     let mut conn = options.connect().await?;
 //!     let path = std::path::Path::new("test/migrations");
