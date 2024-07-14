@@ -54,7 +54,7 @@ macro_rules! ydb_type {
 }
 
 
-macro_rules! wrapper_types {
+macro_rules! wrapper_primitive_types {
     ($($t:ident ($inner:ty) $fun:ident ),+) => {$(
         
         #[derive(Debug, Clone, Copy)]
@@ -64,13 +64,27 @@ macro_rules! wrapper_types {
         impl $t {pub fn $fun(&self) -> $inner { self.0 }}
     )+};
 }
-wrapper_types! {
+macro_rules! wrapper_types {
+    ($($t:ident ($inner:ty) $fun:ident ),+) => {$(
+        
+        #[derive(Debug, Clone)]
+        pub struct $t($inner);
+        impl Into<$inner> for $t { fn into(self) -> $inner {self.0} }
+        impl From<$inner> for $t { fn from(v: $inner) -> Self {Self(v)} }
+        impl $t {pub fn $fun(&self) -> $inner { self.0.clone() }}
+    )+};
+}
+
+wrapper_primitive_types! {
     Date(u16) days, 
     Datetime(u32) secs, 
     Timestamp(u64) micros, 
     Interval(i64) micros
 }
 
+wrapper_types! {
+    Json(String) text
+}
 impl Into<u32> for Date { fn into(self) -> u32 { self.0.into() }}
 impl From<u32> for Date { fn from(v: u32) -> Self {Self(v.try_into().unwrap())}}
 
@@ -92,5 +106,6 @@ ydb_type! {
     Date = (Date, Uint32Value),
     Datetime = (Datetime, Uint32Value),
     Timestamp = (Timestamp, Uint64Value),
+    Json = (Json, TextValue),
 }
 
