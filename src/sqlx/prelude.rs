@@ -16,4 +16,4 @@ pub use sqlx_core::migrate::Migrator;
 
 pub use std::str::FromStr;
 
-pub use super::types::{Date, Datetime, Timestamp, Interval};
+pub use super::types::*;
